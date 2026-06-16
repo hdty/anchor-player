@@ -82,6 +82,13 @@ class _PlayerPageState extends State<PlayerPage> {
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _onTrackComplete();
     }));
+    _applyLoopMode(); // 既定の RepeatMode.one を just_audio の LoopMode に反映。
+  }
+
+  /// RepeatMode を just_audio のループ設定に反映する。
+  /// 1曲ループはネイティブのループ再生に任せる（Windowsで確実）。
+  void _applyLoopMode() {
+    _player.setLoopMode(_repeat == RepeatMode.one ? LoopMode.one : LoopMode.off);
   }
 
   @override
@@ -143,6 +150,8 @@ class _PlayerPageState extends State<PlayerPage> {
     try {
       await _player.setFilePath(path);
       await _player.setSpeed(_speed);
+      await _player.setLoopMode(
+          _repeat == RepeatMode.one ? LoopMode.one : LoopMode.off);
       if (!mounted) return;
       setState(() {
         _fileName = _baseName(path);
@@ -236,6 +245,7 @@ class _PlayerPageState extends State<PlayerPage> {
     setState(() {
       _repeat = RepeatMode.values[(_repeat.index + 1) % RepeatMode.values.length];
     });
+    _applyLoopMode();
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
