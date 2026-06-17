@@ -505,6 +505,9 @@ enum _Grab { none, marker, position }
 class _MarkerSeekBarState extends State<MarkerSeekBar> {
   _Grab _grab = _Grab.none;
   double _dragFraction = 0;
+  // 位置ドラッグ中のシーク連射を防ぐスロットル。最終位置は離した時に確定シークする。
+  DateTime _lastSeek = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _seekThrottle = Duration(milliseconds: 80);
 
   double _fraction(Duration d) {
     final ms = widget.duration.inMilliseconds;
@@ -543,6 +546,7 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
             _dragFraction = clampFraction(local.dx);
             widget.onSeekStart();
             widget.onSeek(_toDuration(_dragFraction));
+            _lastSeek = DateTime.now();
           }
           setState(() {});
         }
@@ -552,8 +556,12 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
           if (_grab == _Grab.marker) {
             widget.onMarkerChange(_toDuration(f));
           } else if (_grab == _Grab.position) {
-            setState(() => _dragFraction = f);
-            widget.onSeek(_toDuration(f));
+            setState(() => _dragFraction = f); // 表示は毎回更新（滑らか）
+            final now = DateTime.now();
+            if (now.difference(_lastSeek) >= _seekThrottle) {
+              _lastSeek = now;
+              widget.onSeek(_toDuration(f)); // 実シークは間引く
+            }
           }
         }
 
@@ -578,6 +586,8 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
           onPanStart: enabled ? (d) => startDrag(d.localPosition) : null,
           onPanUpdate: enabled ? (d) => updateDrag(d.localPosition) : null,
           onPanEnd: enabled ? (_) => endDrag() : null,
+          // ドラッグが途中でキャンセルされても状態を必ず解除する。
+          onPanCancel: enabled ? endDrag : null,
           child: SizedBox(
             height: MarkerSeekBar._height,
             width: double.infinity,
