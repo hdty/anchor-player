@@ -87,8 +87,10 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// RepeatMode を just_audio のループ設定に反映する。
   /// 1曲ループはネイティブのループ再生に任せる（Windowsで確実）。
+  /// シャッフル中は1曲ループを使わない（曲終わりにランダムな次へ進めるため）。
   void _applyLoopMode() {
-    _player.setLoopMode(_repeat == RepeatMode.one ? LoopMode.one : LoopMode.off);
+    final loopOne = !_shuffle && _repeat == RepeatMode.one;
+    _player.setLoopMode(loopOne ? LoopMode.one : LoopMode.off);
   }
 
   @override
@@ -150,8 +152,7 @@ class _PlayerPageState extends State<PlayerPage> {
     try {
       await _player.setFilePath(path);
       await _player.setSpeed(_speed);
-      await _player.setLoopMode(
-          _repeat == RepeatMode.one ? LoopMode.one : LoopMode.off);
+      _applyLoopMode();
       if (!mounted) return;
       setState(() {
         _fileName = _baseName(path);
@@ -278,6 +279,10 @@ class _PlayerPageState extends State<PlayerPage> {
     return Focus(
       focusNode: _keyboardFocus,
       autofocus: true,
+      // 子(ボタン等)にフォーカスを渡さない。ボタンをクリックしてもフォーカスが移らず、
+      // 常に画面全体でキー操作(Space/B/←→)を受け続ける。
+      // (矢印キーがボタン間のフォーカス移動に奪われる問題を防ぐ)
+      descendantsAreFocusable: false,
       onKeyEvent: _onKey,
       child: Scaffold(
         appBar: AppBar(
@@ -401,12 +406,17 @@ class _PlayerPageState extends State<PlayerPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       IconButton(
-                        tooltip: _repeatTooltip(),
-                        isSelected: _repeat != RepeatMode.off,
-                        onPressed: _cycleRepeat,
-                        color: _repeat == RepeatMode.off
-                            ? theme.colorScheme.onSurfaceVariant
-                            : theme.colorScheme.primary,
+                        // シャッフル中はリピートは無関係なので無効化（グレーアウト）。
+                        tooltip: _shuffle
+                            ? 'Repeat (disabled while Shuffle is on)'
+                            : _repeatTooltip(),
+                        isSelected: !_shuffle && _repeat != RepeatMode.off,
+                        onPressed: _shuffle ? null : _cycleRepeat,
+                        color: _shuffle
+                            ? theme.disabledColor
+                            : (_repeat == RepeatMode.off
+                                ? theme.colorScheme.onSurfaceVariant
+                                : theme.colorScheme.primary),
                         icon: Icon(_repeat == RepeatMode.one
                             ? Icons.repeat_one
                             : Icons.repeat),
@@ -415,7 +425,10 @@ class _PlayerPageState extends State<PlayerPage> {
                       IconButton(
                         tooltip: _shuffle ? 'Shuffle: On' : 'Shuffle: Off',
                         isSelected: _shuffle,
-                        onPressed: () => setState(() => _shuffle = !_shuffle),
+                        onPressed: () {
+                          setState(() => _shuffle = !_shuffle);
+                          _applyLoopMode(); // シャッフル切替でループ設定を更新。
+                        },
                         color: _shuffle
                             ? theme.colorScheme.primary
                             : theme.colorScheme.onSurfaceVariant,
@@ -536,8 +549,9 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
         void startDrag(Offset local) {
           final markerX = width * markerFraction;
           // 上段で旗の近くをつかんだらマーク、それ以外はトラック上＝再生位置。
+          // 上段(旗)領域は再生位置の丸(半径10=上端cy-10)と重ならないよう cy-12 まで。
           final grabbedFlag =
-              local.dy <= cy - 8 && (local.dx - markerX).abs() <= 24;
+              local.dy <= cy - 12 && (local.dx - markerX).abs() <= 24;
           if (grabbedFlag) {
             _grab = _Grab.marker;
             widget.onMarkerChange(_toDuration(clampFraction(local.dx)));
@@ -578,7 +592,7 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
           onTapUp: enabled
               ? (d) {
                   // トラック上のタップは再生位置へシーク（旗の上段は無視）。
-                  if (d.localPosition.dy > cy - 8) {
+                  if (d.localPosition.dy > cy - 12) {
                     widget.onSeek(_toDuration(clampFraction(d.localPosition.dx)));
                   }
                 }
@@ -658,22 +672,24 @@ class _SeekBarPainter extends CustomPainter {
       );
     }
 
-    // マーク（バーの上に立つ旗：ポール＋三角）。
-    final mx = size.width * markerFraction;
-    final markerPaint = Paint()
-      ..color = markerColor
-      ..strokeWidth = 2;
-    // ポール（上からトラックまで）。
-    canvas.drawLine(Offset(mx, 10), Offset(mx, cy), markerPaint);
-    // 旗（三角）。
-    final flag = Path()
-      ..moveTo(mx, 10)
-      ..lineTo(mx + 16, 16)
-      ..lineTo(mx, 22)
-      ..close();
-    canvas.drawPath(flag, Paint()..color = markerColor);
-    // ポール先端の小さな丸（つかむ目印）。
-    canvas.drawCircle(Offset(mx, 10), 3, Paint()..color = markerColor);
+    // マーク（バーの上に立つ旗：ポール＋三角）。ファイル読み込み後のみ表示。
+    if (enabled) {
+      final mx = size.width * markerFraction;
+      final markerPaint = Paint()
+        ..color = markerColor
+        ..strokeWidth = 2;
+      // ポール（上からトラックまで）。
+      canvas.drawLine(Offset(mx, 10), Offset(mx, cy), markerPaint);
+      // 旗（三角）。
+      final flag = Path()
+        ..moveTo(mx, 10)
+        ..lineTo(mx + 16, 16)
+        ..lineTo(mx, 22)
+        ..close();
+      canvas.drawPath(flag, Paint()..color = markerColor);
+      // ポール先端の小さな丸（つかむ目印）。
+      canvas.drawCircle(Offset(mx, 10), 3, Paint()..color = markerColor);
+    }
 
     // 再生位置の丸（トラック上）。
     if (enabled) {
