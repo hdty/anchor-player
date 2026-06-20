@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# テスト用音声（著作物の可能性があるため公開リポジトリに含めない）
+testdata/
