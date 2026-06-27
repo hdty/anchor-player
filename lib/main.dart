@@ -249,6 +249,21 @@ class _PlayerPageState extends State<PlayerPage> {
     _player.play(); // 移動してそこから再生を続ける。
   }
 
+  /// Anchor(マーク)位置をキーボード等で微調整する。[0, 全体長] にクランプ。
+  void _nudgeMarker(Duration delta) {
+    if (_fileName == null) return;
+    var m = _marker + delta;
+    if (m < Duration.zero) m = Duration.zero;
+    if (m > _duration) m = _duration;
+    setState(() => _marker = m);
+  }
+
+  /// 現在の再生位置を Anchor にする。
+  void _setAnchorToCurrent() {
+    if (_fileName == null) return;
+    setState(() => _marker = _position);
+  }
+
   void _cycleRepeat() {
     setState(() {
       _repeat = RepeatMode.values[(_repeat.index + 1) % RepeatMode.values.length];
@@ -259,17 +274,59 @@ class _PlayerPageState extends State<PlayerPage> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     switch (event.logicalKey) {
+      // Jump to Anchor: Space / 0
       case LogicalKeyboardKey.space:
-        _togglePlay();
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.keyB:
+      case LogicalKeyboardKey.digit0:
+      case LogicalKeyboardKey.numpad0:
         _jumpToMarker();
+        return KeyEventResult.handled;
+      // Set Anchor here: 5 / S（微調整キー群の中央）
+      case LogicalKeyboardKey.digit5:
+      case LogicalKeyboardKey.numpad5:
+      case LogicalKeyboardKey.keyS:
+        _setAnchorToCurrent();
+        return KeyEventResult.handled;
+      // 再生 / 一時停止: Enter（テンキーEnterも）
+      case LogicalKeyboardKey.enter:
+      case LogicalKeyboardKey.numpadEnter:
+        _togglePlay();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowLeft:
         _seekRelative(-10);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowRight:
         _seekRelative(10);
+        return KeyEventResult.handled;
+      // Anchor 微調整: 左列(1/4/7, z/a/q)=前へ / 右列(3/6/9, c/d/e)=後ろへ。
+      case LogicalKeyboardKey.digit1:
+      case LogicalKeyboardKey.numpad1:
+      case LogicalKeyboardKey.keyZ:
+        _nudgeMarker(const Duration(milliseconds: -200));
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.digit3:
+      case LogicalKeyboardKey.numpad3:
+      case LogicalKeyboardKey.keyC:
+        _nudgeMarker(const Duration(milliseconds: 200));
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.digit4:
+      case LogicalKeyboardKey.numpad4:
+      case LogicalKeyboardKey.keyA:
+        _nudgeMarker(const Duration(seconds: -1));
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.digit6:
+      case LogicalKeyboardKey.numpad6:
+      case LogicalKeyboardKey.keyD:
+        _nudgeMarker(const Duration(seconds: 1));
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.digit7:
+      case LogicalKeyboardKey.numpad7:
+      case LogicalKeyboardKey.keyQ:
+        _nudgeMarker(const Duration(seconds: -5));
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.digit9:
+      case LogicalKeyboardKey.numpad9:
+      case LogicalKeyboardKey.keyE:
+        _nudgeMarker(const Duration(seconds: 5));
         return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -333,9 +390,11 @@ class _PlayerPageState extends State<PlayerPage> {
                     onSeekStart: () => _dragging = true,
                     onSeekEnd: () => _dragging = false,
                     onMarkerChange: (d) => setState(() => _marker = d),
+                    onNudgeMarker: _nudgeMarker,
                   ),
                   const SizedBox(height: 8),
 
+                  // 再生時間（現在地 / 全体）。
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -343,18 +402,22 @@ class _PlayerPageState extends State<PlayerPage> {
                       Text(_fmt(_duration)),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.flag, size: 16, color: theme.colorScheme.error),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Mark: ${_fmt(_marker)}',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: theme.colorScheme.error),
-                      ),
-                    ],
+                  const SizedBox(height: 14),
+
+                  // Anchorへ戻る（中核機能）。バーの近くに大きく目立たせて配置。
+                  FilledButton.icon(
+                    onPressed: hasFile ? _jumpToMarker : null,
+                    icon: const Icon(Icons.replay, size: 26),
+                    label: const Text('Jump to Anchor (Space)'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.error,
+                      foregroundColor: theme.colorScheme.onError,
+                      minimumSize: const Size(240, 54),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 28, vertical: 14),
+                      textStyle: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w600),
+                    ),
                   ),
                   const SizedBox(height: 16),
 
@@ -378,7 +441,7 @@ class _PlayerPageState extends State<PlayerPage> {
                       const SizedBox(width: 12),
                       IconButton.filled(
                         iconSize: 40,
-                        tooltip: 'Play / Pause (Space)',
+                        tooltip: 'Play / Pause (Enter)',
                         onPressed: hasFile ? _togglePlay : null,
                         icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
                       ),
@@ -398,13 +461,27 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
-                  // マークへ戻る（中核機能）。
-                  FilledButton.icon(
-                    onPressed: hasFile ? _jumpToMarker : null,
-                    icon: const Icon(Icons.replay),
-                    label: const Text('Jump to Mark (B)'),
+                  // Anchor の現在位置（時刻表示）＋ 現在の再生位置を Anchor にするボタン。
+                  // キーボード(1/3,z/c …)や旗の横クリックでも微調整できる。
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.flag, size: 16, color: theme.colorScheme.error),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Anchor: ${_fmt(_marker)}',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: theme.colorScheme.error),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: hasFile ? _setAnchorToCurrent : null,
+                        icon: const Icon(Icons.flag, size: 18),
+                        label: const Text('Set Anchor here (S)'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
 
@@ -503,6 +580,7 @@ class MarkerSeekBar extends StatefulWidget {
     required this.onSeekStart,
     required this.onSeekEnd,
     required this.onMarkerChange,
+    required this.onNudgeMarker,
   });
 
   final Duration duration;
@@ -511,7 +589,8 @@ class MarkerSeekBar extends StatefulWidget {
   final ValueChanged<Duration> onSeek;
   final VoidCallback onSeekStart;
   final VoidCallback onSeekEnd;
-  final ValueChanged<Duration> onMarkerChange;
+  final ValueChanged<Duration> onMarkerChange; // 絶対位置
+  final ValueChanged<Duration> onNudgeMarker; // 相対移動（クランプは親側）
 
   static const double _height = 64;
   static const double _trackCenterY = 46; // トラック（丸）の中心Y。旗は上に立つ。
@@ -598,9 +677,18 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
           behavior: HitTestBehavior.opaque,
           onTapUp: enabled
               ? (d) {
-                  // トラック上のタップは再生位置へシーク（旗の上段は無視）。
-                  if (d.localPosition.dy > cy - 12) {
-                    widget.onSeek(_toDuration(clampFraction(d.localPosition.dx)));
+                  final local = d.localPosition;
+                  if (local.dy <= cy - 12) {
+                    // 旗レーン：旗の少し横をクリックで Anchor を 0.2 秒微調整。
+                    // 旗より左=前へ / 右=後ろへ。旗の近く(±120px)のみ反応。
+                    final markerX = width * markerFraction;
+                    if ((local.dx - markerX).abs() <= 120) {
+                      widget.onNudgeMarker(Duration(
+                          milliseconds: local.dx >= markerX ? 200 : -200));
+                    }
+                  } else {
+                    // トラック上のタップは再生位置へシーク。
+                    widget.onSeek(_toDuration(clampFraction(local.dx)));
                   }
                 }
               : null,
