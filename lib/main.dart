@@ -57,6 +57,20 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _dragging = false;
   double _speed = 1.0;
 
+  // Anchor 微調整キーの長押し（押した瞬間に1回、1秒押し続けると連続移動）。
+  Timer? _holdDelayTimer;
+  Timer? _holdRepeatTimer;
+  Duration? _heldDelta;
+
+  static final Set<LogicalKeyboardKey> _nudgeKeys = {
+    LogicalKeyboardKey.digit1, LogicalKeyboardKey.numpad1, LogicalKeyboardKey.keyZ,
+    LogicalKeyboardKey.digit3, LogicalKeyboardKey.numpad3, LogicalKeyboardKey.keyC,
+    LogicalKeyboardKey.digit4, LogicalKeyboardKey.numpad4, LogicalKeyboardKey.keyA,
+    LogicalKeyboardKey.digit6, LogicalKeyboardKey.numpad6, LogicalKeyboardKey.keyD,
+    LogicalKeyboardKey.digit7, LogicalKeyboardKey.numpad7, LogicalKeyboardKey.keyQ,
+    LogicalKeyboardKey.digit9, LogicalKeyboardKey.numpad9, LogicalKeyboardKey.keyE,
+  };
+
   final List<StreamSubscription<dynamic>> _subs = [];
 
   @override
@@ -74,10 +88,7 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!mounted) return;
       setState(() => _playing = playing);
     }));
-    _subs.add(_player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed) _onTrackComplete();
-    }));
-    _applyLoopMode(); // 常に1曲エンドレスリピート。
+    _applyLoopMode(); // 常に1曲エンドレスリピート（LoopMode.one に一本化）。
   }
 
   /// 常に1曲エンドレスリピート（ネイティブのループ再生に任せる）。
@@ -87,6 +98,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   void dispose() {
+    _stopKeyHold();
     for (final s in _subs) {
       s.cancel();
     }
@@ -134,28 +146,31 @@ class _PlayerPageState extends State<PlayerPage> {
   /// ⏮ 先頭に戻って再生。
   void _toStartAndPlay() {
     if (_fileName == null) return;
+    _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
     _player.seek(Duration.zero);
     _player.play();
   }
 
-  /// ⏭ 末尾に進んで一時停止。
+  /// ⏭ 末尾（ちょうど終端）に進んで一時停止。
+  /// ループが有効なままだと末尾seekで完了→先頭へ戻るため、一時的にループを切る。
+  /// 次に再生を始めたとき（各play経路）でループを戻す。
   void _toEndAndPause() {
-    if (_fileName == null) return;
+    if (_fileName == null || _duration <= Duration.zero) return;
+    _player.setLoopMode(LoopMode.off);
     _player.pause();
     _player.seek(_duration);
-  }
-
-  void _onTrackComplete() {
-    // 常に1曲エンドレスリピート（LoopMode.one が主。保険で seek+play）。
-    _player.seek(Duration.zero);
-    _player.play();
   }
 
   // ---- 再生制御 ----
 
   void _togglePlay() {
     if (_fileName == null) return;
-    _playing ? _player.pause() : _player.play();
+    if (_playing) {
+      _player.pause();
+    } else {
+      _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
+      _player.play();
+    }
   }
 
   void _seekRelative(int seconds) {
@@ -168,6 +183,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void _jumpToMarker() {
     if (_fileName == null) return;
+    _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
     _player.seek(_marker);
     _player.play(); // 移動してそこから再生を続ける。
   }
@@ -181,6 +197,30 @@ class _PlayerPageState extends State<PlayerPage> {
     setState(() => _marker = m);
   }
 
+  /// 微調整キーを押した瞬間に1回、押し続けて1秒経過後は連続で動かす。
+  void _startKeyHold(Duration delta) {
+    if (_fileName == null) return;
+    _stopKeyHold();
+    _heldDelta = delta;
+    _nudgeMarker(delta); // 押した瞬間に1回
+    _holdDelayTimer = Timer(const Duration(seconds: 1), () {
+      _holdRepeatTimer =
+          Timer.periodic(const Duration(milliseconds: 110), (_) {
+        final d = _heldDelta;
+        if (d != null) _nudgeMarker(d);
+      });
+    });
+  }
+
+  /// 連続移動を止める（キーを離したとき／破棄時）。
+  void _stopKeyHold() {
+    _holdDelayTimer?.cancel();
+    _holdRepeatTimer?.cancel();
+    _holdDelayTimer = null;
+    _holdRepeatTimer = null;
+    _heldDelta = null;
+  }
+
   /// 現在の再生位置を Anchor にする。
   void _setAnchorToCurrent() {
     if (_fileName == null) return;
@@ -188,6 +228,15 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    // 微調整キーを離したら連続移動を止める。
+    if (event is KeyUpEvent) {
+      if (_nudgeKeys.contains(event.logicalKey)) {
+        _stopKeyHold();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    // OSのキーリピート(KeyRepeatEvent)は無視し、連続移動は自前タイマーで行う。
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     switch (event.logicalKey) {
       // Jump to Anchor: Space / 0
@@ -213,42 +262,47 @@ class _PlayerPageState extends State<PlayerPage> {
       case LogicalKeyboardKey.arrowRight:
         _seekRelative(10);
         return KeyEventResult.handled;
-      // Anchor 微調整: 左列(1/4/7, z/a/q)=前へ / 右列(3/6/9, c/d/e)=後ろへ。
+      // Anchor 微調整: 押した瞬間に1回、1秒押し続けると連続。
+      // 左列(1/4/7, z/a/q)=前へ / 右列(3/6/9, c/d/e)=後ろへ。
       case LogicalKeyboardKey.digit1:
       case LogicalKeyboardKey.numpad1:
       case LogicalKeyboardKey.keyZ:
-        _nudgeMarker(const Duration(milliseconds: -200));
+        _startKeyHold(const Duration(milliseconds: -200));
         return KeyEventResult.handled;
       case LogicalKeyboardKey.digit3:
       case LogicalKeyboardKey.numpad3:
       case LogicalKeyboardKey.keyC:
-        _nudgeMarker(const Duration(milliseconds: 200));
+        _startKeyHold(const Duration(milliseconds: 200));
         return KeyEventResult.handled;
       case LogicalKeyboardKey.digit4:
       case LogicalKeyboardKey.numpad4:
       case LogicalKeyboardKey.keyA:
-        _nudgeMarker(const Duration(seconds: -1));
+        _startKeyHold(const Duration(seconds: -1));
         return KeyEventResult.handled;
       case LogicalKeyboardKey.digit6:
       case LogicalKeyboardKey.numpad6:
       case LogicalKeyboardKey.keyD:
-        _nudgeMarker(const Duration(seconds: 1));
+        _startKeyHold(const Duration(seconds: 1));
         return KeyEventResult.handled;
       case LogicalKeyboardKey.digit7:
       case LogicalKeyboardKey.numpad7:
       case LogicalKeyboardKey.keyQ:
-        _nudgeMarker(const Duration(seconds: -5));
+        _startKeyHold(const Duration(seconds: -5));
         return KeyEventResult.handled;
       case LogicalKeyboardKey.digit9:
       case LogicalKeyboardKey.numpad9:
       case LogicalKeyboardKey.keyE:
-        _nudgeMarker(const Duration(seconds: 5));
+        _startKeyHold(const Duration(seconds: 5));
         return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
   // ---- UI ----
+
+  /// enabled のときだけツールチップを付ける（押せない状態では説明を出さない）。
+  Widget _tip(bool enabled, String message, Widget child) =>
+      enabled ? Tooltip(message: message, child: child) : child;
 
   @override
   Widget build(BuildContext context) {
@@ -266,10 +320,15 @@ class _PlayerPageState extends State<PlayerPage> {
       child: Scaffold(
         appBar: AppBar(
           // タイトル行にファイル名を表示（未選択時はアプリ名）＋右にフォルダボタン。
-          title: Text(
-            _fileName ?? 'Anchor Player',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          // ファイル名タップでもファイル変更できる（フォルダボタンと同じ／ツールチップ無し）。
+          title: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _openFile,
+            child: Text(
+              _fileName ?? 'Anchor Player',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           backgroundColor: theme.colorScheme.inversePrimary,
           actions: [
@@ -316,18 +375,22 @@ class _PlayerPageState extends State<PlayerPage> {
                   const SizedBox(height: 14),
 
                   // Anchorへ戻る（中核機能）。バーの近くに大きく目立たせて配置。
-                  FilledButton.icon(
-                    onPressed: hasFile ? _jumpToMarker : null,
-                    icon: const Icon(Icons.replay, size: 26),
-                    label: const Text('Jump to Anchor (Space)'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: theme.colorScheme.error,
-                      foregroundColor: theme.colorScheme.onError,
-                      minimumSize: const Size(240, 54),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 28, vertical: 14),
-                      textStyle: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w600),
+                  _tip(
+                    hasFile,
+                    'Jump to Anchor',
+                    FilledButton.icon(
+                      onPressed: hasFile ? _jumpToMarker : null,
+                      icon: const Icon(Icons.replay, size: 26),
+                      label: const Text('Jump to Anchor'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.error,
+                        foregroundColor: theme.colorScheme.onError,
+                        minimumSize: const Size(240, 54),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 28, vertical: 14),
+                        textStyle: const TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -338,35 +401,35 @@ class _PlayerPageState extends State<PlayerPage> {
                     children: [
                       IconButton(
                         iconSize: 30,
-                        tooltip: 'Back to start & play',
+                        tooltip: hasFile ? 'Back to start & play' : null,
                         onPressed: hasFile ? _toStartAndPlay : null,
                         icon: const Icon(Icons.skip_previous),
                       ),
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
                         iconSize: 26,
-                        tooltip: 'Back 10s (Left)',
+                        tooltip: hasFile ? 'Back 10s (Left)' : null,
                         onPressed: hasFile ? () => _seekRelative(-10) : null,
                         icon: const Icon(Icons.replay_10),
                       ),
                       const SizedBox(width: 12),
                       IconButton.filled(
                         iconSize: 40,
-                        tooltip: 'Play / Pause (Enter)',
+                        tooltip: hasFile ? 'Play / Pause (Enter)' : null,
                         onPressed: hasFile ? _togglePlay : null,
                         icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
                       ),
                       const SizedBox(width: 12),
                       IconButton.filledTonal(
                         iconSize: 26,
-                        tooltip: 'Forward 10s (Right)',
+                        tooltip: hasFile ? 'Forward 10s (Right)' : null,
                         onPressed: hasFile ? () => _seekRelative(10) : null,
                         icon: const Icon(Icons.forward_10),
                       ),
                       const SizedBox(width: 8),
                       IconButton(
                         iconSize: 30,
-                        tooltip: 'Go to end & pause',
+                        tooltip: hasFile ? 'Go to end & pause' : null,
                         onPressed: hasFile ? _toEndAndPause : null,
                         icon: const Icon(Icons.skip_next),
                       ),
@@ -387,10 +450,14 @@ class _PlayerPageState extends State<PlayerPage> {
                             ?.copyWith(color: theme.colorScheme.error),
                       ),
                       const SizedBox(width: 12),
-                      OutlinedButton.icon(
-                        onPressed: hasFile ? _setAnchorToCurrent : null,
-                        icon: const Icon(Icons.flag, size: 18),
-                        label: const Text('Set Anchor here (S)'),
+                      _tip(
+                        hasFile,
+                        'Set Anchor here',
+                        OutlinedButton.icon(
+                          onPressed: hasFile ? _setAnchorToCurrent : null,
+                          icon: const Icon(Icons.flag, size: 18),
+                          label: const Text('Set Anchor here'),
+                        ),
                       ),
                     ],
                   ),
@@ -444,6 +511,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     segments: _speeds
                         .map((s) => ButtonSegment<double>(
                               value: s,
+                              tooltip: 'Change speed',
                               // 各セグメントを同じ幅に揃える。
                               label: SizedBox(
                                 width: 44,
@@ -761,7 +829,7 @@ class _NudgeButtonState extends State<_NudgeButton> {
     final theme = Theme.of(context);
     final color =
         widget.enabled ? theme.colorScheme.primary : theme.disabledColor;
-    return GestureDetector(
+    final button = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: widget.enabled ? widget.onNudge : null,
       onLongPressStart: widget.enabled
@@ -772,8 +840,7 @@ class _NudgeButtonState extends State<_NudgeButton> {
           : null,
       onLongPressEnd: widget.enabled ? (_) => _stopRepeat() : null,
       onLongPressCancel: _stopRepeat,
-      // 固定幅で全ボタンを同じ大きさに揃える。幅を明示するので Wrap 内で
-      // 全幅に広がる問題は起きない（alignment は固定幅内での中央寄せ）。
+      // 固定幅で全ボタンを同じ大きさに揃える。
       child: Container(
         width: 66,
         alignment: Alignment.center,
@@ -787,6 +854,14 @@ class _NudgeButtonState extends State<_NudgeButton> {
           style: TextStyle(color: color, fontWeight: FontWeight.w600),
         ),
       ),
+    );
+    // 押せない状態（ファイル未読み込み）ではツールチップを出さない。
+    if (!widget.enabled) return button;
+    return Tooltip(
+      message: 'Adjust Anchor',
+      // 長押しは連続微調整に使うため、タッチではツールチップを出さない（ホバーのみ）。
+      triggerMode: TooltipTriggerMode.manual,
+      child: button,
     );
   }
 }
