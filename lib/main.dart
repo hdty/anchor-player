@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -58,9 +57,6 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _dragging = false;
   double _speed = 1.0;
 
-  List<String> _playlist = []; // 開いたファイルと同じフォルダ内の音声一覧（前/次の曲用）。
-  int _index = -1;
-
   final List<StreamSubscription<dynamic>> _subs = [];
 
   @override
@@ -111,40 +107,10 @@ class _PlayerPageState extends State<PlayerPage> {
     );
     final path = result?.files.single.path;
     if (path == null) return;
-    _buildPlaylist(path);
     await _loadPath(path);
   }
 
-  /// 開いたファイルと同じフォルダ内の音声ファイルを集めてプレイリストにする。
-  void _buildPlaylist(String path) {
-    try {
-      final entries = File(path).parent.listSync();
-      final files = <String>[];
-      for (final e in entries) {
-        if (e is! File) continue;
-        final lower = e.path.toLowerCase();
-        final dot = lower.lastIndexOf('.');
-        if (dot >= 0 && _audioExts.contains(lower.substring(dot))) {
-          files.add(e.path);
-        }
-      }
-      files.sort((a, b) =>
-          _baseName(a).toLowerCase().compareTo(_baseName(b).toLowerCase()));
-      final idx = files.indexWhere((p) => p == path);
-      if (idx < 0) {
-        _playlist = [path];
-        _index = 0;
-      } else {
-        _playlist = files;
-        _index = idx;
-      }
-    } catch (_) {
-      _playlist = [path];
-      _index = 0;
-    }
-  }
-
-  Future<void> _loadPath(String path, {bool autoplay = false}) async {
+  Future<void> _loadPath(String path) async {
     try {
       await _player.setFilePath(path);
       await _player.setSpeed(_speed);
@@ -155,7 +121,6 @@ class _PlayerPageState extends State<PlayerPage> {
         _marker = Duration.zero;
         _position = Duration.zero;
       });
-      if (autoplay) await _player.play();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -164,34 +129,20 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  // ---- 曲送り ----
+  // ---- 先頭/末尾ジャンプ ----
 
-  int? _computeNextIndex({required bool wrap}) {
-    if (_playlist.isEmpty) return null;
-    if (_playlist.length == 1) return wrap ? 0 : null;
-    final n = _index + 1;
-    if (n >= _playlist.length) return wrap ? 0 : null;
-    return n;
+  /// ⏮ 先頭に戻って再生。
+  void _toStartAndPlay() {
+    if (_fileName == null) return;
+    _player.seek(Duration.zero);
+    _player.play();
   }
 
-  void _nextTrack() {
-    final n = _computeNextIndex(wrap: true);
-    if (n == null) return;
-    _index = n;
-    _loadPath(_playlist[n], autoplay: true);
-  }
-
-  void _prevTrack() {
-    if (_playlist.isEmpty) return;
-    // 3秒以上再生していたら曲の先頭へ。そうでなければ前の曲へ。
-    if (_position > const Duration(seconds: 3)) {
-      _player.seek(Duration.zero);
-      return;
-    }
-    var n = _index - 1;
-    if (n < 0) n = _playlist.length - 1;
-    _index = n;
-    _loadPath(_playlist[n], autoplay: true);
+  /// ⏭ 末尾に進んで一時停止。
+  void _toEndAndPause() {
+    if (_fileName == null) return;
+    _player.pause();
+    _player.seek(_duration);
   }
 
   void _onTrackComplete() {
@@ -303,7 +254,6 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasFile = _fileName != null;
-    final hasPlaylist = _playlist.length > 1;
 
     return Focus(
       focusNode: _keyboardFocus,
@@ -388,8 +338,8 @@ class _PlayerPageState extends State<PlayerPage> {
                     children: [
                       IconButton(
                         iconSize: 30,
-                        tooltip: 'Previous track',
-                        onPressed: hasPlaylist ? _prevTrack : null,
+                        tooltip: 'Back to start & play',
+                        onPressed: hasFile ? _toStartAndPlay : null,
                         icon: const Icon(Icons.skip_previous),
                       ),
                       const SizedBox(width: 8),
@@ -416,8 +366,8 @@ class _PlayerPageState extends State<PlayerPage> {
                       const SizedBox(width: 8),
                       IconButton(
                         iconSize: 30,
-                        tooltip: 'Next track',
-                        onPressed: hasPlaylist ? _nextTrack : null,
+                        tooltip: 'Go to end & pause',
+                        onPressed: hasFile ? _toEndAndPause : null,
                         icon: const Icon(Icons.skip_next),
                       ),
                     ],
