@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,9 +34,6 @@ class AnchorPlayerApp extends StatelessWidget {
   }
 }
 
-/// リピートモード: off=リピート無し / one=1曲ループ / all=フォルダ全曲ループ。
-enum RepeatMode { off, one, all }
-
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key});
 
@@ -48,7 +44,6 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   final AudioPlayer _player = AudioPlayer();
   final FocusNode _keyboardFocus = FocusNode();
-  final Random _random = Random();
 
   static const Set<String> _audioExts = {
     '.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus',
@@ -63,10 +58,7 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _dragging = false;
   double _speed = 1.0;
 
-  RepeatMode _repeat = RepeatMode.one; // 既定: 1曲ループ。
-  bool _shuffle = false;
-
-  List<String> _playlist = []; // 開いたファイルと同じフォルダ内の音声一覧。
+  List<String> _playlist = []; // 開いたファイルと同じフォルダ内の音声一覧（前/次の曲用）。
   int _index = -1;
 
   final List<StreamSubscription<dynamic>> _subs = [];
@@ -89,15 +81,12 @@ class _PlayerPageState extends State<PlayerPage> {
     _subs.add(_player.processingStateStream.listen((state) {
       if (state == ProcessingState.completed) _onTrackComplete();
     }));
-    _applyLoopMode(); // 既定の RepeatMode.one を just_audio の LoopMode に反映。
+    _applyLoopMode(); // 常に1曲エンドレスリピート。
   }
 
-  /// RepeatMode を just_audio のループ設定に反映する。
-  /// 1曲ループはネイティブのループ再生に任せる（Windowsで確実）。
-  /// シャッフル中は1曲ループを使わない（曲終わりにランダムな次へ進めるため）。
+  /// 常に1曲エンドレスリピート（ネイティブのループ再生に任せる）。
   void _applyLoopMode() {
-    final loopOne = !_shuffle && _repeat == RepeatMode.one;
-    _player.setLoopMode(loopOne ? LoopMode.one : LoopMode.off);
+    _player.setLoopMode(LoopMode.one);
   }
 
   @override
@@ -180,13 +169,6 @@ class _PlayerPageState extends State<PlayerPage> {
   int? _computeNextIndex({required bool wrap}) {
     if (_playlist.isEmpty) return null;
     if (_playlist.length == 1) return wrap ? 0 : null;
-    if (_shuffle) {
-      int n;
-      do {
-        n = _random.nextInt(_playlist.length);
-      } while (n == _index);
-      return n;
-    }
     final n = _index + 1;
     if (n >= _playlist.length) return wrap ? 0 : null;
     return n;
@@ -213,19 +195,9 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void _onTrackComplete() {
-    if (_repeat == RepeatMode.one) {
-      _player.seek(Duration.zero);
-      _player.play();
-      return;
-    }
-    final n = _computeNextIndex(wrap: _repeat == RepeatMode.all);
-    if (n == null) {
-      _player.pause();
-      _player.seek(Duration.zero);
-    } else {
-      _index = n;
-      _loadPath(_playlist[n], autoplay: true);
-    }
+    // 常に1曲エンドレスリピート（LoopMode.one が主。保険で seek+play）。
+    _player.seek(Duration.zero);
+    _player.play();
   }
 
   // ---- 再生制御 ----
@@ -262,13 +234,6 @@ class _PlayerPageState extends State<PlayerPage> {
   void _setAnchorToCurrent() {
     if (_fileName == null) return;
     setState(() => _marker = _position);
-  }
-
-  void _cycleRepeat() {
-    setState(() {
-      _repeat = RepeatMode.values[(_repeat.index + 1) % RepeatMode.values.length];
-    });
-    _applyLoopMode();
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
@@ -350,33 +315,29 @@ class _PlayerPageState extends State<PlayerPage> {
       onKeyEvent: _onKey,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Anchor Player'),
+          // タイトル行にファイル名を表示（未選択時はアプリ名）＋右にフォルダボタン。
+          title: Text(
+            _fileName ?? 'Anchor Player',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           backgroundColor: theme.colorScheme.inversePrimary,
+          actions: [
+            IconButton(
+              tooltip: 'Open file',
+              icon: const Icon(Icons.folder_open),
+              onPressed: _openFile,
+            ),
+          ],
         ),
         body: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               child: Column(
                 children: [
-                  // ファイル名（日本語等もそのまま表示）。
-                  Text(
-                    _fileName ?? 'No file open',
-                    style: theme.textTheme.titleMedium,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ファイルを開く（操作部の近く・中央寄せ）。
-                  OutlinedButton.icon(
-                    onPressed: _openFile,
-                    icon: const Icon(Icons.folder_open),
-                    label: const Text('Open'),
-                  ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 8),
 
                   // シークバー：旗=マーク / 丸=再生位置。どちらもドラッグで移動。
                   MarkerSeekBar(
@@ -483,41 +444,47 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
 
-                  // リピート / シャッフル。
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  // Anchor 微調整ボタン（タップ=1回 / 長押し=連続）。
+                  // タッチ専用環境(Android/iOS)でもキー無しで調整できる。
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      IconButton(
-                        // シャッフル中はリピートは無関係なので無効化（グレーアウト）。
-                        tooltip: _shuffle
-                            ? 'Repeat (disabled while Shuffle is on)'
-                            : _repeatTooltip(),
-                        isSelected: !_shuffle && _repeat != RepeatMode.off,
-                        onPressed: _shuffle ? null : _cycleRepeat,
-                        color: _shuffle
-                            ? theme.disabledColor
-                            : (_repeat == RepeatMode.off
-                                ? theme.colorScheme.onSurfaceVariant
-                                : theme.colorScheme.primary),
-                        icon: Icon(_repeat == RepeatMode.one
-                            ? Icons.repeat_one
-                            : Icons.repeat),
-                      ),
-                      const SizedBox(width: 24),
-                      IconButton(
-                        tooltip: _shuffle ? 'Shuffle: On' : 'Shuffle: Off',
-                        isSelected: _shuffle,
-                        onPressed: () {
-                          setState(() => _shuffle = !_shuffle);
-                          _applyLoopMode(); // シャッフル切替でループ設定を更新。
-                        },
-                        color: _shuffle
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurfaceVariant,
-                        icon: const Icon(Icons.shuffle),
-                      ),
+                      _NudgeButton(
+                          label: '−5s',
+                          enabled: hasFile,
+                          onNudge: () =>
+                              _nudgeMarker(const Duration(seconds: -5))),
+                      _NudgeButton(
+                          label: '−1s',
+                          enabled: hasFile,
+                          onNudge: () =>
+                              _nudgeMarker(const Duration(seconds: -1))),
+                      _NudgeButton(
+                          label: '−0.2s',
+                          enabled: hasFile,
+                          onNudge: () =>
+                              _nudgeMarker(const Duration(milliseconds: -200))),
+                      const SizedBox(width: 14),
+                      _NudgeButton(
+                          label: '+0.2s',
+                          enabled: hasFile,
+                          onNudge: () =>
+                              _nudgeMarker(const Duration(milliseconds: 200))),
+                      _NudgeButton(
+                          label: '+1s',
+                          enabled: hasFile,
+                          onNudge: () =>
+                              _nudgeMarker(const Duration(seconds: 1))),
+                      _NudgeButton(
+                          label: '+5s',
+                          enabled: hasFile,
+                          onNudge: () =>
+                              _nudgeMarker(const Duration(seconds: 5))),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -527,7 +494,11 @@ class _PlayerPageState extends State<PlayerPage> {
                     segments: _speeds
                         .map((s) => ButtonSegment<double>(
                               value: s,
-                              label: Text('${s}x'),
+                              // 各セグメントを同じ幅に揃える。
+                              label: SizedBox(
+                                width: 44,
+                                child: Center(child: Text('${s}x')),
+                              ),
                             ))
                         .toList(),
                     selected: {_speed},
@@ -545,17 +516,6 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
       ),
     );
-  }
-
-  String _repeatTooltip() {
-    switch (_repeat) {
-      case RepeatMode.off:
-        return 'Repeat: Off';
-      case RepeatMode.one:
-        return 'Repeat: One track';
-      case RepeatMode.all:
-        return 'Repeat: All in folder';
-    }
   }
 
   static String _fmt(Duration d) {
@@ -806,5 +766,77 @@ class _SeekBarPainter extends CustomPainter {
     return old.positionFraction != positionFraction ||
         old.markerFraction != markerFraction ||
         old.enabled != enabled;
+  }
+}
+
+/// Anchor 微調整ボタン。タップで1回、長押しで連続的に微調整する。
+/// タッチ（Android/iOS）でもキーボード無しで Anchor をずらせる。
+class _NudgeButton extends StatefulWidget {
+  const _NudgeButton({
+    required this.label,
+    required this.onNudge,
+    required this.enabled,
+  });
+
+  final String label;
+  final VoidCallback onNudge;
+  final bool enabled;
+
+  @override
+  State<_NudgeButton> createState() => _NudgeButtonState();
+}
+
+class _NudgeButtonState extends State<_NudgeButton> {
+  Timer? _timer;
+
+  void _startRepeat() {
+    _timer?.cancel();
+    _timer = Timer.periodic(
+        const Duration(milliseconds: 110), (_) => widget.onNudge());
+  }
+
+  void _stopRepeat() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color =
+        widget.enabled ? theme.colorScheme.primary : theme.disabledColor;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.enabled ? widget.onNudge : null,
+      onLongPressStart: widget.enabled
+          ? (_) {
+              widget.onNudge(); // 長押し開始で即1回、以降は連続。
+              _startRepeat();
+            }
+          : null,
+      onLongPressEnd: widget.enabled ? (_) => _stopRepeat() : null,
+      onLongPressCancel: _stopRepeat,
+      // 固定幅で全ボタンを同じ大きさに揃える。幅を明示するので Wrap 内で
+      // 全幅に広がる問題は起きない（alignment は固定幅内での中央寄せ）。
+      child: Container(
+        width: 66,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: color),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          widget.label,
+          style: TextStyle(color: color, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
   }
 }
