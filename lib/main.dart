@@ -463,69 +463,70 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                   const SizedBox(height: 10),
 
-                  // Anchor 微調整ボタン（タップ=1回 / 長押し=連続）。
-                  // タッチ専用環境(Android/iOS)でもキー無しで調整できる。
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _NudgeButton(
-                          label: '−5s',
-                          enabled: hasFile,
-                          onNudge: () =>
-                              _nudgeMarker(const Duration(seconds: -5))),
-                      _NudgeButton(
-                          label: '−1s',
-                          enabled: hasFile,
-                          onNudge: () =>
-                              _nudgeMarker(const Duration(seconds: -1))),
-                      _NudgeButton(
-                          label: '−0.2s',
-                          enabled: hasFile,
-                          onNudge: () =>
-                              _nudgeMarker(const Duration(milliseconds: -200))),
-                      const SizedBox(width: 14),
-                      _NudgeButton(
-                          label: '+0.2s',
-                          enabled: hasFile,
-                          onNudge: () =>
-                              _nudgeMarker(const Duration(milliseconds: 200))),
-                      _NudgeButton(
-                          label: '+1s',
-                          enabled: hasFile,
-                          onNudge: () =>
-                              _nudgeMarker(const Duration(seconds: 1))),
-                      _NudgeButton(
-                          label: '+5s',
-                          enabled: hasFile,
-                          onNudge: () =>
-                              _nudgeMarker(const Duration(seconds: 5))),
-                    ],
+                  // Anchor 微調整（速度と同じ連結セグメント形式・同じ幅で統一）。
+                  // タップ=1回 / 長押し=連続。
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 460),
+                    child: _SegmentedBar(
+                      tooltip: hasFile ? 'Adjust Anchor' : null,
+                      segments: [
+                        _SegmentSpec(
+                            label: '−5s',
+                            enabled: hasFile,
+                            repeatable: true,
+                            onTap: () =>
+                                _nudgeMarker(const Duration(seconds: -5))),
+                        _SegmentSpec(
+                            label: '−1s',
+                            enabled: hasFile,
+                            repeatable: true,
+                            onTap: () =>
+                                _nudgeMarker(const Duration(seconds: -1))),
+                        _SegmentSpec(
+                            label: '−0.2s',
+                            enabled: hasFile,
+                            repeatable: true,
+                            onTap: () => _nudgeMarker(
+                                const Duration(milliseconds: -200))),
+                        _SegmentSpec(
+                            label: '+0.2s',
+                            enabled: hasFile,
+                            repeatable: true,
+                            onTap: () => _nudgeMarker(
+                                const Duration(milliseconds: 200))),
+                        _SegmentSpec(
+                            label: '+1s',
+                            enabled: hasFile,
+                            repeatable: true,
+                            onTap: () =>
+                                _nudgeMarker(const Duration(seconds: 1))),
+                        _SegmentSpec(
+                            label: '+5s',
+                            enabled: hasFile,
+                            repeatable: true,
+                            onTap: () =>
+                                _nudgeMarker(const Duration(seconds: 5))),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
 
-                  // 再生速度（ラベル無し）。
-                  SegmentedButton<double>(
-                    segments: _speeds
-                        .map((s) => ButtonSegment<double>(
-                              value: s,
-                              tooltip: 'Change speed',
-                              // 各セグメントを同じ幅に揃える。
-                              label: SizedBox(
-                                width: 44,
-                                child: Center(child: Text('${s}x')),
-                              ),
-                            ))
-                        .toList(),
-                    selected: {_speed},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) {
-                      final v = sel.first;
-                      _player.setSpeed(v);
-                      setState(() => _speed = v);
-                    },
+                  // 再生速度（Anchor微調整と同じ連結セグメント形式・同じ幅）。
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 460),
+                    child: _SegmentedBar(
+                      tooltip: 'Change speed',
+                      segments: _speeds
+                          .map((s) => _SegmentSpec(
+                                label: '${s}x',
+                                selected: s == _speed,
+                                onTap: () {
+                                  _player.setSpeed(s);
+                                  setState(() => _speed = s);
+                                },
+                              ))
+                          .toList(),
+                    ),
                   ),
                 ],
               ),
@@ -787,30 +788,90 @@ class _SeekBarPainter extends CustomPainter {
   }
 }
 
-/// Anchor 微調整ボタン。タップで1回、長押しで連続的に微調整する。
-/// タッチ（Android/iOS）でもキーボード無しで Anchor をずらせる。
-class _NudgeButton extends StatefulWidget {
-  const _NudgeButton({
+/// 連結セグメントUIの1区画の仕様（速度選択・Anchor微調整で共用）。
+class _SegmentSpec {
+  const _SegmentSpec({
     required this.label,
-    required this.onNudge,
-    required this.enabled,
+    required this.onTap,
+    this.selected = false,
+    this.repeatable = false,
+    this.enabled = true,
   });
 
   final String label;
-  final VoidCallback onNudge;
+  final VoidCallback onTap;
+  final bool selected; // 現在値のハイライト（速度用）
+  final bool repeatable; // 長押しで連続実行（Anchor微調整用）
   final bool enabled;
-
-  @override
-  State<_NudgeButton> createState() => _NudgeButtonState();
 }
 
-class _NudgeButtonState extends State<_NudgeButton> {
+/// 速度・Anchor微調整で共通の連結セグメントUI（見た目・幅を統一）。
+class _SegmentedBar extends StatelessWidget {
+  const _SegmentedBar({required this.segments, this.tooltip});
+
+  final List<_SegmentSpec> segments;
+  final String? tooltip; // ホバー時の共通説明（null なら出さない）
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = Theme.of(context).colorScheme.outline;
+    Widget bar = Container(
+      height: 40,
+      decoration: BoxDecoration(
+        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(19),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < segments.length; i++)
+              Expanded(
+                child: _SegmentButton(
+                  spec: segments[i],
+                  showLeftDivider: i != 0,
+                  dividerColor: borderColor,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (tooltip != null) {
+      // ホバーのみ（タッチの長押しは連続実行に使うため出さない）。
+      bar = Tooltip(
+        message: tooltip!,
+        triggerMode: TooltipTriggerMode.manual,
+        child: bar,
+      );
+    }
+    return bar;
+  }
+}
+
+class _SegmentButton extends StatefulWidget {
+  const _SegmentButton({
+    required this.spec,
+    required this.showLeftDivider,
+    required this.dividerColor,
+  });
+
+  final _SegmentSpec spec;
+  final bool showLeftDivider;
+  final Color dividerColor;
+
+  @override
+  State<_SegmentButton> createState() => _SegmentButtonState();
+}
+
+class _SegmentButtonState extends State<_SegmentButton> {
   Timer? _timer;
 
   void _startRepeat() {
     _timer?.cancel();
     _timer = Timer.periodic(
-        const Duration(milliseconds: 110), (_) => widget.onNudge());
+        const Duration(milliseconds: 110), (_) => widget.spec.onTap());
   }
 
   void _stopRepeat() {
@@ -827,41 +888,39 @@ class _NudgeButtonState extends State<_NudgeButton> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color =
-        widget.enabled ? theme.colorScheme.primary : theme.disabledColor;
-    final button = GestureDetector(
+    final spec = widget.spec;
+    final fg = !spec.enabled
+        ? theme.disabledColor
+        : (spec.selected
+            ? theme.colorScheme.onSecondaryContainer
+            : theme.colorScheme.onSurface);
+    return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: widget.enabled ? widget.onNudge : null,
-      onLongPressStart: widget.enabled
+      onTap: spec.enabled ? spec.onTap : null,
+      onLongPressStart: (spec.enabled && spec.repeatable)
           ? (_) {
-              widget.onNudge(); // 長押し開始で即1回、以降は連続。
+              spec.onTap(); // 長押し開始で即1回、以降は連続。
               _startRepeat();
             }
           : null,
-      onLongPressEnd: widget.enabled ? (_) => _stopRepeat() : null,
-      onLongPressCancel: _stopRepeat,
-      // 固定幅で全ボタンを同じ大きさに揃える。
+      onLongPressEnd:
+          (spec.enabled && spec.repeatable) ? (_) => _stopRepeat() : null,
+      onLongPressCancel: spec.repeatable ? _stopRepeat : null,
       child: Container(
-        width: 66,
         alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          border: Border.all(color: color),
-          borderRadius: BorderRadius.circular(8),
+          color: spec.selected
+              ? theme.colorScheme.secondaryContainer
+              : Colors.transparent,
+          border: widget.showLeftDivider
+              ? Border(left: BorderSide(color: widget.dividerColor))
+              : null,
         ),
         child: Text(
-          widget.label,
-          style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          spec.label,
+          style: TextStyle(color: fg, fontWeight: FontWeight.w600),
         ),
       ),
-    );
-    // 押せない状態（ファイル未読み込み）ではツールチップを出さない。
-    if (!widget.enabled) return button;
-    return Tooltip(
-      message: 'Adjust Anchor',
-      // 長押しは連続微調整に使うため、タッチではツールチップを出さない（ホバーのみ）。
-      triggerMode: TooltipTriggerMode.manual,
-      child: button,
     );
   }
 }
