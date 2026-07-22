@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <title>Anchor Player</title>
+  <!--
+    参照用のマスタ。アイコン画像はこの SVG からではなく
+    lib/ui/anchor_mark.dart から生成する（flutter test tools/gen_icon.dart）。
+    両者は同じ 96x96 グリッド・同じ座標を持つ。片方を直したら必ずもう片方も直すこと。
+
+    ストローク幅 8 / 丸終端は Material Symbols Rounded weight 400 相当
+    （24px グリッドでの 2px を 4 倍したもの）。
+  -->
+  <defs>
+    <mask id="play-cutout">
+      <rect x="0" y="0" width="96" height="96" fill="#ffffff"/>
+      <path d="M43.5 20 L56 27 L43.5 34 Z" fill="#000000"/>
+    </mask>
+  </defs>
+  <rect x="0" y="0" width="96" height="96" rx="22" fill="#A3D8E1"/>
+  <g mask="url(#play-cutout)">
+    <circle cx="48" cy="27" r="15" fill="#C9457E"/>
+    <g fill="none" stroke="#13253F" stroke-width="8" stroke-linecap="round">
+      <line x1="48" y1="42" x2="48" y2="83"/>
+      <line x1="30" y1="53" x2="66" y2="53"/>
+      <path d="M22 65 Q22 83 48 83 Q74 83 74 65"/>
+    </g>
+  </g>
+</svg>

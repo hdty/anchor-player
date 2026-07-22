@@ -51,6 +51,22 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Android / iOS のランチャーアイコン生成。元 PNG は
+  # `flutter test tools/gen_icon.dart` が design/ に書き出したもの。
+  flutter_launcher_icons: ^0.14.4
+
+# アイコン生成の設定。Windows は tools/make-icon.ps1 で .ico を作るのでここでは扱わない。
+#   flutter pub run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "design/icon_1024.png"
+  remove_alpha_ios: true
+  # アダプティブアイコン: 地は淡い水色ベタ、前景はセーフゾーンに収めたマークのみ。
+  adaptive_icon_background: "#A3D8E1"
+  adaptive_icon_foreground: "design/icon_foreground_1024.png"
+  adaptive_icon_monochrome: "design/icon_monochrome_1024.png"
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
