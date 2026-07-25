@@ -4,23 +4,33 @@
     参照用のマスタ。アイコン画像はこの SVG からではなく
     lib/ui/anchor_mark.dart から生成する（flutter test tools/gen_icon.dart）。
     両者は同じ 96x96 グリッド・同じ座標を持つ。片方を直したら必ずもう片方も直すこと。
+    寸法と配色の根拠は design/icon_blueprint.md にある。
 
-    ストローク幅 8 / 丸終端は Material Symbols Rounded weight 400 相当
-    （24px グリッドでの 2px を 4 倍したもの）。
+    図案: 主役は大きな再生三角（音声プレイヤー）、アンカーは右下に半分サイズの
+    バッジとして従属させる。アンカーの周囲は地の色で「逃げ」を作り、三角から浮かせる。
+    確定配色: 地=紺 / 再生三角=水色 / アンカー=薄桜。
   -->
   <defs>
-    <mask id="play-cutout">
+    <mask id="anchor-gap">
       <rect x="0" y="0" width="96" height="96" fill="#ffffff"/>
-      <path d="M43.5 20 L56 27 L43.5 34 Z" fill="#000000"/>
+      <!-- 逃げ: アンカーを太いストロークで黒に=三角から抜く。 -->
+      <g fill="none" stroke="#000000" stroke-linecap="round">
+        <circle cx="63" cy="53" r="4" stroke-width="7.5"/>
+        <line x1="63" y1="57" x2="63" y2="72" stroke-width="9"/>
+        <line x1="54" y1="62" x2="72" y2="62" stroke-width="9"/>
+        <path d="M52 68 Q52 76 63 76 Q74 76 74 68" stroke-width="9"/>
+      </g>
     </mask>
   </defs>
-  <rect x="0" y="0" width="96" height="96" rx="22" fill="#A3D8E1"/>
-  <g mask="url(#play-cutout)">
-    <circle cx="48" cy="27" r="15" fill="#C9457E"/>
-    <g fill="none" stroke="#13253F" stroke-width="8" stroke-linecap="round">
-      <line x1="48" y1="42" x2="48" y2="83"/>
-      <line x1="30" y1="53" x2="66" y2="53"/>
-      <path d="M22 65 Q22 83 48 83 Q74 83 74 65"/>
-    </g>
+
+  <rect x="0" y="0" width="96" height="96" rx="22" fill="#13253F"/>
+  <path d="M32 22 L32 74 L74 48 Z" fill="#A3D8E1" stroke="#A3D8E1" stroke-width="5"
+        stroke-linejoin="round" mask="url(#anchor-gap)"/>
+  <!-- アンカー本体（逃げの中に載る、細いストローク）。 -->
+  <g fill="none" stroke="#E8AFCF" stroke-linecap="round">
+    <circle cx="63" cy="53" r="4" stroke-width="3.5"/>
+    <line x1="63" y1="57" x2="63" y2="72" stroke-width="5"/>
+    <line x1="54" y1="62" x2="72" y2="62" stroke-width="5"/>
+    <path d="M52 68 Q52 76 63 76 Q74 76 74 68" stroke-width="5"/>
   </g>
 </svg>

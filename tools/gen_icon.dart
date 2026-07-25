@@ -24,17 +24,19 @@ const double _adaptiveSafeRatio = 66 / 108;
 Future<void> _writePng(
   String path,
   int side, {
-  required Color inkColor,
-  required Color ringColor,
+  required Color triangleColor,
+  Color? anchorColor,
   Color? plateColor,
+  bool withAnchor = true,
   double scaleFactor = 1.0,
 }) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
   AnchorMarkPainter(
-    inkColor: inkColor,
-    ringColor: ringColor,
+    triangleColor: triangleColor,
+    anchorColor: anchorColor,
     plateColor: plateColor,
+    withAnchor: withAnchor,
     scaleFactor: scaleFactor,
   ).paint(canvas, Size(side.toDouble(), side.toDouble()));
   final image = await recorder.endRecording().toImage(side, side);
@@ -47,32 +49,34 @@ Future<void> _writePng(
 
 void main() {
   test('アイコン画像を design/ に書き出す', () async {
+    // 確定配色: 地 紺 / 再生三角 水色 / アンカー 薄桜。
     for (final side in _sizes) {
       await _writePng(
         'design/icon_$side.png',
         side,
-        inkColor: AnchorMark.ink,
-        ringColor: AnchorMark.sakura,
-        plateColor: AnchorMark.water,
+        triangleColor: AnchorMark.water,
+        anchorColor: AnchorMark.paleSakura,
+        plateColor: AnchorMark.ink,
       );
     }
 
-    // Android アダプティブアイコンの前景（透過・マークのみ・セーフゾーン内）。
+    // Android アダプティブアイコンの前景（透過・地なし・セーフゾーン内）。
+    // 背景レイヤは紺ベタ（pubspec の adaptive_icon_background）が担う。
     await _writePng(
       'design/icon_foreground_1024.png',
       1024,
-      inkColor: AnchorMark.ink,
-      ringColor: AnchorMark.sakura,
+      triangleColor: AnchorMark.water,
+      anchorColor: AnchorMark.paleSakura,
       scaleFactor: _adaptiveSafeRatio,
     );
 
-    // Android 13+ のテーマ付きアイコン用。単色に落とされる前提なので
-    // リングも本体と同じ色で描き、抜いた再生三角だけが形として残るようにする。
+    // Android 13+ のテーマ付きアイコン用。単色に落とされる前提なので、
+    // 三角を1色で塗りアンカーは抜き（負の空間）だけにして、単色シルエットにする。
     await _writePng(
       'design/icon_monochrome_1024.png',
       1024,
-      inkColor: AnchorMark.ink,
-      ringColor: AnchorMark.ink,
+      triangleColor: AnchorMark.ink,
+      withAnchor: false,
       scaleFactor: _adaptiveSafeRatio,
     );
 

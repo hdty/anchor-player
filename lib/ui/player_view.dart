@@ -90,14 +90,13 @@ class PlayerView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // ブランドの象徴として、アプリアイコンそのもの（プレートあり）を出す。
+          // 自己完結した配色なのでライト／ダークどちらの画面でも同じに見える。
           SizedBox(
             width: 96,
             height: 96,
             child: CustomPaint(
-              painter: AnchorMarkPainter(
-                inkColor: theme.colorScheme.onSurfaceVariant,
-                ringColor: context.anchorColors.anchor,
-              ),
+              painter: const AnchorMarkPainter.icon(),
             ),
           ),
           const SizedBox(height: 24),

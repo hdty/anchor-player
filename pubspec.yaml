@@ -62,8 +62,8 @@ flutter_launcher_icons:
   ios: true
   image_path: "design/icon_1024.png"
   remove_alpha_ios: true
-  # アダプティブアイコン: 地は淡い水色ベタ、前景はセーフゾーンに収めたマークのみ。
-  adaptive_icon_background: "#A3D8E1"
+  # アダプティブアイコン: 地は紺ベタ、前景はセーフゾーンに収めたマークのみ。
+  adaptive_icon_background: "#13253F"
   adaptive_icon_foreground: "design/icon_foreground_1024.png"
   adaptive_icon_monochrome: "design/icon_monochrome_1024.png"
 
