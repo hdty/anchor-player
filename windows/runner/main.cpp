@@ -26,7 +26,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  // コンテンツ(幅620/高さ約540)に合わせて初期サイズを絞る。既定の1280x720は余白が大きい。
+  Win32Window::Size size(680, 640);
   if (!window.Create(L"Anchor Player", origin, size)) {
     return EXIT_FAILURE;
   }
