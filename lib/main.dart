@@ -8,7 +8,12 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   // デスクトップ(Windows等)の音声バックエンドを libmpv(media_kit) にする。
   // just_audio_windows より高音質・安定。just_audio の API はそのまま使える。
-  // pitch は無効のまま（速度変更時にピッチ補正で声の高さを保つ＝シャドーイング向き）。
+  //
+  // pitch = false にすると、速度変更が mpv の `speed`＋`audio-pitch-correction` 経由になり、
+  // 減速時のタイムストレッチが旧 `scaletempo` から新しい `scaletempo2` に変わる。
+  // 旧 scaletempo は 0.5/0.75 倍で声がふらつく/こもるため、シャドーイング用途では
+  // scaletempo2 の方が明瞭。声の高さ(ピッチ)は保たれ、本アプリは setPitch を使わない。
+  JustAudioMediaKit.pitch = false;
   JustAudioMediaKit.title = 'Anchor Player';
   JustAudioMediaKit.ensureInitialized(windows: true);
   runApp(const AnchorPlayerApp());
