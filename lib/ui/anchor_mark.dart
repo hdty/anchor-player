@@ -30,6 +30,12 @@ class AnchorMark {
   static const Color paleSakura = Color(0xFFE8AFCF); // 薄桜色（アイコンのアンカー）
   static const Color sakura = Color(0xFFC9457E); // 濃い桜（UI機能色。アイコンでは使わない）
 
+  // 紺プレートの縁（水色を alpha 0x9E ≒ 62% で）。暗いタスクバーでも輪郭が立つよう、
+  // プレート内側に沿った低コントラストのキーライン。
+  static const Color rim = Color(0x9EA3D8E1);
+  static const double _rimStroke = 2.4;
+  static const double _rimInset = 1.2;
+
   // 主役の再生三角。
   static final List<Offset> _triangle = const [
     Offset(32, 22),
@@ -119,6 +125,19 @@ class AnchorMark {
           const Radius.circular(plateRadius),
         ),
         Paint()..color = plateColor,
+      );
+      // プレートに沿った水色のキーライン（暗いタスクバー対策）。
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTRB(
+              _rimInset, _rimInset, grid - _rimInset, grid - _rimInset),
+          const Radius.circular(plateRadius - _rimInset),
+        ),
+        Paint()
+          ..color = rim
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = _rimStroke
+          ..isAntiAlias = true,
       );
     }
 

@@ -24,6 +24,9 @@
   </defs>
 
   <rect x="0" y="0" width="96" height="96" rx="22" fill="#13253F"/>
+  <!-- 縁: 暗いタスクバーでも輪郭が立つよう、水色を alpha 62% でプレートに沿わせる。 -->
+  <rect x="1.2" y="1.2" width="93.6" height="93.6" rx="20.8" fill="none"
+        stroke="#A3D8E1" stroke-opacity="0.62" stroke-width="2.4"/>
   <path d="M32 22 L32 74 L74 48 Z" fill="#A3D8E1" stroke="#A3D8E1" stroke-width="5"
         stroke-linejoin="round" mask="url(#anchor-gap)"/>
   <!-- アンカー本体（逃げの中に載る、細いストローク）。 -->
