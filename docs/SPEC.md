@@ -47,12 +47,32 @@ Windows標準のメディアプレイヤーは「10秒戻し」しかできず�
 - 10秒戻し / 送り（`←` / `→`）。
 - 先頭へ戻って再生 / 末尾へ進んで一時停止。
 - 再生位置・総再生時間の表示。
-- 再生速度 0.5〜2.0x（声の高さは保持＝ピッチ補正あり）。
+- 再生速度 0.6〜2.0x（声の高さは保持＝ピッチ補正あり）。遅い側は 0.1 刻み。
 - 開いた1ファイルを常にエンドレスリピート（`LoopMode.one` に一本化）。
 - 高品質な libmpv 音声エンジン（旧 just_audio_windows の音割れを解消）。
 - Windows / Android / iOS のアプリアイコン。
 - ライト / ダークテーマ（`ThemeMode.system`）。
 - ファイル未選択時の空状態と、アプリ内のショートカット一覧ダイアログ。
+
+### 再生速度とタイムストレッチ（検証済み・結論）
+選択肢は `lib/ui/player_view.dart` の `kSpeeds` ただ1箇所。遅い側の下限は **0.6 倍**。
+
+減速時の音質はタイムストレッチ実装で決まる。`JustAudioMediaKit.pitch = false` にすると
+media_kit は旧 `scaletempo` ではなく mpv 既定の **`scaletempo2`** を使う（`main()` で設定）。
+旧 `scaletempo` は声がふらつきこもるため使わない。
+
+**0.5 倍は廃止した。** 引き伸ばしが 2 倍になり、下記のとおり方式を問わず破綻したため。
+
+| 方式 | 0.5 倍での結果 |
+|---|---|
+| `scaletempo2`（採用） | ごく一部でプツッと途切れる。窓を広げても（`window-size=30/50`）改善せず |
+| `rubberband` R3 (`engine=finer`) | 水中のような反響（位相ボコーダ特有のにじみ） |
+| `rubberband` R2 (`engine=faster`) | 男声にビブラート。`window=short` は低い基本周波数を解像できず悪化 |
+| `lavfi=[atempo=0.5]` | 同様に不合格 |
+
+rubberband を使うには (1) rubberband 入り libmpv（純正 14.8MB に対し **112MB**）と
+(2) `af` を設定する口（`just_audio_media_kit` は公開APIを持たないため複製＋パッチ）の
+両方が要る。**音質が scaletempo2 に及ばないため採用しない。** 再挑戦する価値は低い。
 
 ### キーボード操作一覧
 割り当ての実体は **`lib/shortcuts.dart` の `kShortcuts`** ただ1箇所にある。

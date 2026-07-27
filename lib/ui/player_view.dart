@@ -48,7 +48,11 @@ abstract class PlayerCommands {
 }
 
 /// 再生速度の選択肢。
-const List<double> kSpeeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+///
+/// 遅い側は 0.6 倍までとし、0.1 刻みで細かく選べるようにしている。
+/// 0.5 倍は scaletempo2 / rubberband / atempo のいずれでも音が破綻したため
+/// 廃止した（引き伸ばしが 2 倍になり、方式を問わず限界を超える）。
+const List<double> kSpeeds = [0.6, 0.7, 0.8, 0.9, 1.0, 1.25, 1.5, 2.0];
 
 class PlayerView extends StatelessWidget {
   const PlayerView({

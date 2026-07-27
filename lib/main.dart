@@ -11,8 +11,12 @@ void main() {
   //
   // pitch = false にすると、速度変更が mpv の `speed`＋`audio-pitch-correction` 経由になり、
   // 減速時のタイムストレッチが旧 `scaletempo` から新しい `scaletempo2` に変わる。
-  // 旧 scaletempo は 0.5/0.75 倍で声がふらつく/こもるため、シャドーイング用途では
+  // 旧 scaletempo は減速時に声がふらつく/こもるため、シャドーイング用途では
   // scaletempo2 の方が明瞭。声の高さ(ピッチ)は保たれ、本アプリは setPitch を使わない。
+  //
+  // rubberband(R3/R2) も検証したが、R3 は水中のような反響、R2 は男声にビブラートが出て
+  // scaletempo2 に及ばなかった。lavfi の atempo も同様。0.5 倍は方式を問わず限界なので、
+  // 速度の下限自体を 0.6 倍に引き上げた（kSpeeds を参照）。
   JustAudioMediaKit.pitch = false;
   JustAudioMediaKit.title = 'Anchor Player';
   JustAudioMediaKit.ensureInitialized(windows: true);
