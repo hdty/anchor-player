@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../recent_files.dart';
 import '../shortcuts.dart';
 import 'player_view.dart';
 import 'shortcuts_dialog.dart';
@@ -32,6 +33,7 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   bool _playing = false;
   bool _dragging = false;
   double _speed = 1.0;
+  RecentFiles _recent = RecentFiles.empty;
 
   // アンカー微調整キーの長押し（押した瞬間に1回、1秒押し続けると連続移動）。
   Timer? _holdDelayTimer;
@@ -56,6 +58,13 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
       setState(() => _playing = playing);
     }));
     _applyLoopMode(); // 常に1曲エンドレスリピート（LoopMode.one に一本化）。
+    _loadRecent();
+  }
+
+  Future<void> _loadRecent() async {
+    final recent = await RecentFiles.load();
+    if (!mounted) return;
+    setState(() => _recent = recent);
   }
 
   /// 常に1曲エンドレスリピート（ネイティブのループ再生に任せる）。
@@ -90,16 +99,22 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
     await _loadPath(path);
   }
 
+  @override
+  Future<void> openRecent(String path) => _loadPath(path);
+
   Future<void> _loadPath(String path) async {
     try {
       await _player.setFilePath(path);
       await _player.setSpeed(_speed);
       _applyLoopMode();
+      // 再生できたものだけ履歴に残す。開けなかったファイルを覚えても意味がない。
+      final recent = await RecentFiles.add(path);
       if (!mounted) return;
       setState(() {
         _fileName = _baseName(path);
         _anchor = Duration.zero;
         _position = Duration.zero;
+        _recent = recent;
       });
     } catch (e) {
       if (!mounted) return;
@@ -279,6 +294,7 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
           anchor: _anchor,
           playing: _playing,
           speed: _speed,
+          recentPaths: _recent.paths,
         ),
         commands: this,
       ),

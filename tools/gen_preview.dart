@@ -18,6 +18,8 @@ class _NoopCommands implements PlayerCommands {
   @override
   void openFile() {}
   @override
+  void openRecent(String path) {}
+  @override
   void showShortcuts(BuildContext context) {}
   @override
   void togglePlay() {}
@@ -54,7 +56,14 @@ const _playing = PlayerViewData(
   speed: 0.75,
 );
 
-const _empty = PlayerViewData();
+// 履歴つきの空状態。実際の使い方（連番の教材を順に進める）に近い見え方を確認する。
+const _empty = PlayerViewData(recentPaths: [
+  r'D:\english\Ba_046.mp3',
+  r'D:\english\Ba_043.mp3',
+  r'D:\english\Ba_039.mp3',
+  r'D:\english\Ba_045.mp3',
+  r'D:\english\Ba_042.mp3',
+]);
 
 Future<void> _capture(
   WidgetTester tester,

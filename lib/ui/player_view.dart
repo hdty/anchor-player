@@ -14,6 +14,7 @@ class PlayerViewData {
     this.anchor = Duration.zero,
     this.playing = false,
     this.speed = 1.0,
+    this.recentPaths = const <String>[],
   });
 
   final String? fileName;
@@ -22,6 +23,9 @@ class PlayerViewData {
   final Duration anchor;
   final bool playing;
   final double speed;
+
+  /// 最近開いたファイル（新しい順）。空状態にだけ出す。
+  final List<String> recentPaths;
 
   bool get hasFile => fileName != null;
 }
@@ -32,6 +36,7 @@ class PlayerViewData {
 /// （`tools/gen_preview.dart` がライト/ダーク両方のプレビュー画像を作るのに使う）。
 abstract class PlayerCommands {
   void openFile();
+  void openRecent(String path);
   void showShortcuts(BuildContext context);
   void togglePlay();
   void seekTo(Duration position);
@@ -120,9 +125,52 @@ class PlayerView extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 24),
             ),
           ),
+          if (data.recentPaths.isNotEmpty) _buildRecent(context),
         ],
       ),
     );
+  }
+
+  /// 最近開いたファイル。連番の教材を順に進めるので、並んでいるだけで
+  /// 「次にどれをやるか」が分かる。押せばダイアログ無しで再開できる。
+  Widget _buildRecent(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Recent',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelMedium
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 4),
+          for (final path in data.recentPaths)
+            TextButton(
+              onPressed: () => commands.openRecent(path),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              child: Text(
+                _displayName(path),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 表示はファイル名だけにする。フルパスは長すぎて一覧の意味を損なう。
+  static String _displayName(String path) {
+    final name = path.split(RegExp(r'[\\/]')).last;
+    final dot = name.lastIndexOf('.');
+    return dot > 0 ? name.substring(0, dot) : name;
   }
 
   Widget _buildPlayer(BuildContext context) {
