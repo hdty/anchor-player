@@ -57,7 +57,7 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
       if (!mounted) return;
       setState(() => _playing = playing);
     }));
-    _applyLoopMode(); // 常に1曲エンドレスリピート（LoopMode.one に一本化）。
+    _run('init', _applyLoopMode); // 常に1曲エンドレスリピート（LoopMode.one に一本化）。
     _loadRecent();
   }
 
@@ -68,8 +68,41 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   }
 
   /// 常に1曲エンドレスリピート（ネイティブのループ再生に任せる）。
-  void _applyLoopMode() {
-    _player.setLoopMode(LoopMode.one);
+  Future<void> _applyLoopMode() => _player.setLoopMode(LoopMode.one);
+
+  // ---- 再生エンジンへの操作の直列化 ----
+
+  /// 発行した順に実行されることを保証するためのキュー。
+  ///
+  /// エンジンへの操作はどれも非同期なので、投げっぱなしにするとコマンドをまたいで
+  /// 追い越しが起きる。例えば ⏭（末尾へ seek）の直後に Jump to Anchor を押すと、
+  /// 後から着地した ⏭ の seek によってアンカーではなく終端へ飛んでしまう。
+  /// 1本のキューに通せば、コマンドをまたいでも順序が入れ替わらない。
+  Future<void> _queue = Future<void>.value();
+
+  /// [action] をキューの末尾につないで実行する。
+  ///
+  /// 例外はここで拾ってログに出す。投げっぱなしのままだとリリースビルドで痕跡が
+  /// 残らず、「ときどき効かない」の調査ができなくなるため。
+  /// 吸収しないとキューが壊れて以後の操作が全て止まる、という理由もある。
+  Future<void> _run(String label, Future<void> Function() action) {
+    final next = _queue.then((_) => action()).catchError((Object e) {
+      debugPrint('Anchor Player: $label failed: $e');
+    });
+    _queue = next;
+    return next;
+  }
+
+  /// 再生を始める。**`play()` を await してはいけない。**
+  ///
+  /// just_audio の `play()` が返す Future は「再生が完了 / 一時停止 / 停止した」
+  /// ときに完了する。キューの中で待つと再生中ずっとキューが詰まり、以後の操作が
+  /// 全て止まってしまう。順序が要るのは play より前の seek / setLoopMode なので、
+  /// それらを await したうえで play は投げるだけにする。
+  void _startPlayback(String label) {
+    unawaited(_player.play().catchError((Object e) {
+      debugPrint('Anchor Player: $label play failed: $e');
+    }));
   }
 
   @override
@@ -102,11 +135,15 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   @override
   Future<void> openRecent(String path) => _loadPath(path);
 
-  Future<void> _loadPath(String path) async {
+  /// 読み込みもキューに通す。前のコマンドが出したシークが、新しく開いたファイルに
+  /// 着地するのを防ぐため。例外は中で処理するので [_run] 側には伝わらない。
+  Future<void> _loadPath(String path) => _run('load', () => _load(path));
+
+  Future<void> _load(String path) async {
     try {
       await _player.setFilePath(path);
       await _player.setSpeed(_speed);
-      _applyLoopMode();
+      await _applyLoopMode();
       // 再生できたものだけ履歴に残す。開けなかったファイルを覚えても意味がない。
       final recent = await RecentFiles.add(path);
       if (!mounted) return;
@@ -133,9 +170,11 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   @override
   void toStartAndPlay() {
     if (_fileName == null) return;
-    _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
-    _player.seek(Duration.zero);
-    _player.play();
+    _run('toStartAndPlay', () async {
+      await _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
+      await _player.seek(Duration.zero);
+      _startPlayback('toStartAndPlay');
+    });
   }
 
   /// 末尾（ちょうど終端）に進んで一時停止。
@@ -144,9 +183,11 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   @override
   void toEndAndPause() {
     if (_fileName == null || _duration <= Duration.zero) return;
-    _player.setLoopMode(LoopMode.off);
-    _player.pause();
-    _player.seek(_duration);
+    _run('toEndAndPause', () async {
+      await _player.setLoopMode(LoopMode.off);
+      await _player.pause();
+      await _player.seek(_duration);
+    });
   }
 
   // ---- 再生制御 ----
@@ -155,16 +196,20 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   void togglePlay() {
     if (_fileName == null) return;
     if (_playing) {
-      _player.pause();
+      _run('pause', () => _player.pause());
     } else {
-      _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
-      _player.play();
+      _run('play', () async {
+        // ループを戻してから再生する。順序が逆だと、⏭ で終端に置いたまま再生した
+        // ときにループ無効のまま即完了して無音になる。
+        await _applyLoopMode();
+        _startPlayback('play');
+      });
     }
   }
 
   @override
   void seekTo(Duration position) {
-    _player.seek(position);
+    _run('seekTo', () => _player.seek(position));
     setState(() => _position = position);
   }
 
@@ -180,12 +225,12 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
     var target = _position + delta;
     if (target < Duration.zero) target = Duration.zero;
     if (target > _duration) target = _duration;
-    _player.seek(target);
+    _run('seekRelative', () => _player.seek(target));
   }
 
   @override
   void setSpeed(double speed) {
-    _player.setSpeed(speed);
+    _run('setSpeed', () => _player.setSpeed(speed));
     setState(() => _speed = speed);
   }
 
@@ -194,9 +239,11 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   @override
   void jumpToAnchor() {
     if (_fileName == null) return;
-    _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
-    _player.seek(_anchor);
-    _player.play(); // 移動してそこから再生を続ける。
+    _run('jumpToAnchor', () async {
+      await _applyLoopMode(); // 末尾一時停止でループを切っている場合に備え再有効化。
+      await _player.seek(_anchor);
+      _startPlayback('jumpToAnchor'); // 移動してそこから再生を続ける。
+    });
   }
 
   @override

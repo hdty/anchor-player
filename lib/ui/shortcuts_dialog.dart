@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../shortcuts.dart';
 
@@ -22,25 +23,36 @@ class ShortcutsDialog extends StatelessWidget {
       title: const Text('Keyboard shortcuts'),
       content: SizedBox(
         width: 420,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final group in ShortcutGroup.values) ...[
-                Padding(
-                  padding: const EdgeInsets.only(top: 12, bottom: 6),
-                  child: Text(
-                    group.label,
-                    style: theme.textTheme.labelLarge
-                        ?.copyWith(color: theme.colorScheme.primary),
-                  ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 一覧だけをスクロールさせ、バージョンは下に固定して常に見えるようにする。
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final group in ShortcutGroup.values) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12, bottom: 6),
+                        child: Text(
+                          group.label,
+                          style: theme.textTheme.labelLarge
+                              ?.copyWith(color: theme.colorScheme.primary),
+                        ),
+                      ),
+                      for (final s in kShortcuts.where((s) => s.group == group))
+                        _ShortcutRow(spec: s),
+                    ],
+                  ],
                 ),
-                for (final s in kShortcuts.where((s) => s.group == group))
-                  _ShortcutRow(spec: s),
-              ],
-            ],
-          ),
+              ),
+            ),
+            const Divider(height: 24),
+            const _VersionLine(),
+          ],
         ),
       ),
       actions: [
@@ -49,6 +61,53 @@ class ShortcutsDialog extends StatelessWidget {
           child: const Text('Close'),
         ),
       ],
+    );
+  }
+}
+
+/// アプリ名とバージョン。不具合を報告するときにどのビルドか分かるように出す。
+///
+/// バージョンの数字はここに書かない。`pubspec.yaml` を唯一の定義とし、
+/// 実行ファイルに埋め込まれた値を [PackageInfo] 経由で読む
+/// （Windows は Runner.rc の `FLUTTER_VERSION` が pubspec 由来）。
+/// ここに定数で持つとリリースのたびに書き換え忘れてずれる。
+class _VersionLine extends StatefulWidget {
+  const _VersionLine();
+
+  @override
+  State<_VersionLine> createState() => _VersionLineState();
+}
+
+class _VersionLineState extends State<_VersionLine> {
+  String? _label;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() => _label = '${info.appName} v${info.version}');
+    } catch (_) {
+      // 取得できない環境（テストなど）では黙って出さない。
+      // ここで落ちて一覧まで見られなくなる方が困る。
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: double.infinity,
+      child: Text(
+        _label ?? '',
+        style: theme.textTheme.bodySmall
+            ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+      ),
     );
   }
 }

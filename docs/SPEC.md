@@ -79,6 +79,26 @@ rubberband を使うには (1) rubberband 入り libmpv（純正 14.8MB に対�
 (2) `af` を設定する口（`just_audio_media_kit` は公開APIを持たないため複製＋パッチ）の
 両方が要る。**音質が scaletempo2 に及ばないため採用しない。** 再挑戦する価値は低い。
 
+### 再生エンジンへの操作は直列化する
+`_PlayerPageState._run()` が1本のキューに通す。エンジンへの操作（seek / play / pause /
+setLoopMode / setSpeed / 読み込み）はどれも非同期なので、投げっぱなしにすると
+**コマンドをまたいで追い越しが起きる**。例: ⏭（末尾へ seek）の直後に Jump to Anchor を
+押すと、後から着地した ⏭ の seek でアンカーではなく終端へ飛ぶ。
+
+**`play()` だけは await してはいけない。** just_audio の `play()` が返す Future は
+「再生が完了 / 一時停止 / 停止した」ときに完了する。キューの中で待つと再生中ずっと
+キューが詰まり、以後の操作が全て止まる。順序が要るのは play より前の seek /
+setLoopMode なので、それらを await してから `_startPlayback()` で投げるだけにする。
+
+例外は `_run` が拾ってログに出す。握り潰すとリリースビルドで痕跡が残らず
+「ときどき効かない」の調査ができない。キューが壊れて以後の操作が止まるのも防ぐ。
+
+### バージョン表示
+「?」のショートカット一覧の下に `アプリ名 vX.Y.Z` を出す。数字は Dart 側に持たず、
+`package_info_plus` が実行ファイルの埋め込み値を読む（Windows は Runner.rc の
+`FLUTTER_VERSION` が pubspec 由来）。**唯一の定義は `pubspec.yaml`**。
+定数で持つとリリースのたびに書き換え忘れてずれ、表示が嘘をつく。
+
 ### キーボード操作一覧
 割り当ての実体は **`lib/shortcuts.dart` の `kShortcuts`** ただ1箇所にある。
 キー判定もアプリ内のショートカット一覧ダイアログも同じ表を読むので、
