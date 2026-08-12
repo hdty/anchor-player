@@ -27,7 +27,8 @@
 - testdata/ : テスト用の音声など
 - windows/ android/ ios/ : 各プラットフォーム固有
 - design/   : アイコンの生成物（icon_*.png）と参照用マスタ（anchor_mark.svg）
-- tools/    : 補助スクリプト（gen_icon / gen_preview / make-icon.ps1）
+- tools/    : 補助スクリプト（gen_icon / gen_preview / make-icon.ps1 / make-installer.sh）
+- installer/: Inno Setup のインストーラ定義（anchor_player.iss）
 - docs/     : 詳細仕様。@docs/SPEC.md を参照（自動インポートされる）
 - build/dist/ : 配布物（生成物。Git管理外・参照不要）
 
@@ -41,6 +42,9 @@
 - アイコン生成   : flutter test tools/gen_icon.dart → design/icon_*.png
   → powershell -File tools/make-icon.ps1（.ico）
   → dart run flutter_launcher_icons（Android / iOS）
+- インストーラ   : bash tools/make-installer.sh
+  → build/dist/AnchorPlayer-Setup-<version>.exe（要 Inno Setup 6）
+  バージョンは pubspec.yaml から読む。定義は installer/anchor_player.iss
 
 ## ルール
 - まず Windows で確実に動かす。移植性を壊す Windows 専用 API は避け、

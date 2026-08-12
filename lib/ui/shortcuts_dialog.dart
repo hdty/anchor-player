@@ -23,39 +23,34 @@ class ShortcutsDialog extends StatelessWidget {
       title: const Text('Keyboard shortcuts'),
       content: SizedBox(
         width: 420,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 一覧だけをスクロールさせ、バージョンは下に固定して常に見えるようにする。
-            Flexible(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final group in ShortcutGroup.values) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12, bottom: 6),
-                        child: Text(
-                          group.label,
-                          style: theme.textTheme.labelLarge
-                              ?.copyWith(color: theme.colorScheme.primary),
-                        ),
-                      ),
-                      for (final s in kShortcuts.where((s) => s.group == group))
-                        _ShortcutRow(spec: s),
-                    ],
-                  ],
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final group in ShortcutGroup.values) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 12, bottom: 6),
+                  child: Text(
+                    group.label,
+                    style: theme.textTheme.labelLarge
+                        ?.copyWith(color: theme.colorScheme.primary),
+                  ),
                 ),
-              ),
-            ),
-            const Divider(height: 24),
-            const _VersionLine(),
-          ],
+                for (final s in kShortcuts.where((s) => s.group == group))
+                  _ShortcutRow(spec: s),
+              ],
+            ],
+          ),
         ),
       ),
+      // バージョンは Close と同じ行に置く。内容領域に入れると一覧を押し出して
+      // 最後の項目が見えなくなる（v0.7.1 で 9/E の行が隠れていた）。
+      // actions は Row ではなく OverflowBar なので、Expanded は使えない。
+      // 左右に振り分けるのは actionsAlignment で行う。
+      actionsAlignment: MainAxisAlignment.spaceBetween,
       actions: [
+        const _VersionLine(),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
@@ -101,8 +96,9 @@ class _VersionLineState extends State<_VersionLine> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
-      width: double.infinity,
+    // actions 行（OverflowBar）に置くので、内容ぶんの幅に収める。
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
       child: Text(
         _label ?? '',
         style: theme.textTheme.bodySmall

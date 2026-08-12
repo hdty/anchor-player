@@ -94,10 +94,14 @@ setLoopMode なので、それらを await してから `_startPlayback()` で�
 「ときどき効かない」の調査ができない。キューが壊れて以後の操作が止まるのも防ぐ。
 
 ### バージョン表示
-「?」のショートカット一覧の下に `アプリ名 vX.Y.Z` を出す。数字は Dart 側に持たず、
-`package_info_plus` が実行ファイルの埋め込み値を読む（Windows は Runner.rc の
-`FLUTTER_VERSION` が pubspec 由来）。**唯一の定義は `pubspec.yaml`**。
-定数で持つとリリースのたびに書き換え忘れてずれ、表示が嘘をつく。
+「?」のショートカット一覧の **Close と同じ行（`actions`）** に `アプリ名 vX.Y.Z` を出す。
+数字は Dart 側に持たず、`package_info_plus` が実行ファイルの埋め込み値を読む
+（Windows は Runner.rc の `FLUTTER_VERSION` が pubspec 由来）。
+**唯一の定義は `pubspec.yaml`**。定数で持つと書き換え忘れて表示が嘘をつく。
+
+内容領域には置かないこと。v0.7.1 で内容の下に足した結果、一覧が押し出されて
+末尾の項目（`9`/`E`）が見えなくなった。`actions` は `Row` ではなく `OverflowBar`
+なので `Expanded` は使えず、左右への配置は `actionsAlignment` で行う。
 
 ### キーボード操作一覧
 割り当ての実体は **`lib/shortcuts.dart` の `kShortcuts`** ただ1箇所にある。
@@ -190,7 +194,20 @@ setLoopMode なので、それらを await してから `_startPlayback()` で�
 - ファイル選択: file_picker
 - アイコン生成: `tools/make-icon.ps1`（Windows PowerShell 5.1 + UTF-8 BOM で実行）。
 - 日本語環境(CP932)対策: `windows/CMakeLists.txt` に `/utf-8` を指定（警告C4819→/WX 回避）。
-- 配布: `flutter build windows` → `build/dist/` に zip 化 → `git tag vX.Y.Z` → `gh release create`。
+- 配布: `flutter build windows` → **インストーラと zip の2種類**を `build/dist/` に作り、
+  `git tag vX.Y.Z` → `gh release create` で添付する。
+  - **インストーラ**（主）: `bash tools/make-installer.sh` → `AnchorPlayer-Setup-<version>.exe`。
+    定義は `installer/anchor_player.iss`（Inno Setup 6）。利用者は DLL を意識しない。
+    バージョンは pubspec.yaml から読むので `.iss` に数字を書かない。
+    `AppId` の GUID は**変えてはいけない**（変えると別アプリ扱いになり上書き更新できない）。
+    `PrivilegesRequired=lowest` + `PrivilegesRequiredOverridesAllowed=dialog` で
+    権限とインストール先を連動させる（全ユーザー→`Program Files\AnchorPlayer` /
+    自分だけ→`%LOCALAPPDATA%\Programs\AnchorPlayer`）。フォルダ名に空白を入れない。
+  - **zip**（副）: インストールせずに使いたい場合向けに残す。
+- Flutter 製なので配布物は exe 単体にならない（16ファイル・43MB）。内訳は
+  `flutter_windows.dll` 20MB と **`libmpv-2.dll` 15MB（音声エンジン。Flutter とは無関係）**。
+  ネイティブに作り直しても libmpv は必要なので単一 exe にはならず、
+  Windows 標準 API に替えれば減速再生の音質が破綻する。**インストーラで解決する。**
 
 ## スコープ運用方針
 - 機能を増やす前に、コア要件2点の確実な動作を優先する。
