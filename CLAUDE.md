@@ -45,6 +45,10 @@
 - インストーラ   : bash tools/make-installer.sh
   → build/dist/AnchorPlayer-Setup-<version>.exe（要 Inno Setup 6）
   バージョンは pubspec.yaml から読む。定義は installer/anchor_player.iss
+- リリース配布   : git tag vX.Y.Z && git push origin vX.Y.Z
+  → GitHub Actions がビルドして Release を作る。手元の成果物は上げない
+  （SignPath の署名要件が「ソースからの自動ビルド」のため）。
+  ノートは docs/release-notes/vX.Y.Z.md に置く
 
 ## ルール
 - まず Windows で確実に動かす。移植性を壊す Windows 専用 API は避け、

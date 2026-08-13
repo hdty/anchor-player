@@ -194,8 +194,16 @@ setLoopMode なので、それらを await してから `_startPlayback()` で�
 - ファイル選択: file_picker
 - アイコン生成: `tools/make-icon.ps1`（Windows PowerShell 5.1 + UTF-8 BOM で実行）。
 - 日本語環境(CP932)対策: `windows/CMakeLists.txt` に `/utf-8` を指定（警告C4819→/WX 回避）。
-- 配布: `flutter build windows` → **インストーラと zip の2種類**を `build/dist/` に作り、
-  `git tag vX.Y.Z` → `gh release create` で添付する。
+- 配布: **`git tag vX.Y.Z && git push origin vX.Y.Z` だけ**。あとは GitHub Actions
+  （`.github/workflows/release.yml`）が Windows / Android をビルドして Release を作る。
+  - **手元でビルドした成果物をアップロードしない。** SignPath Foundation の無償署名は
+    「バイナリがソースからの自動ビルドであること」を要件にしており、手動配布では通らない。
+  - リリースノートは **`docs/release-notes/vX.Y.Z.md`**（Git 管理下）に置く。
+    無ければコミット履歴から自動生成される。
+  - タグと `pubspec.yaml` のバージョンが違うと `check-version` ジョブで止まる。
+  - 動作確認は Actions 画面の **Run workflow**（`workflow_dispatch`）で。
+    タグを作らずに全ジョブを回せる。Release の作成はタグ時のみ。
+  - ローカルで作りたい場合は下記（インストーラは手元でも同じ手順で作れる）。
   - **インストーラ**（主）: `bash tools/make-installer.sh` → `AnchorPlayer-Setup-<version>.exe`。
     定義は `installer/anchor_player.iss`（Inno Setup 6）。利用者は DLL を意識しない。
     バージョンは pubspec.yaml から読むので `.iss` に数字を書かない。

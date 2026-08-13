@@ -1,0 +1,175 @@
+name: Release
+
+# タグを打つとビルドして Release を作る。
+#
+# 手で作った成果物をアップロードするのはやめる。SignPath Foundation の署名は
+# 「バイナリがソースからの自動ビルドであること」を要件にしており、
+# ローカルビルドの手動アップロードでは要件を満たさないため。
+#
+# 動作確認は workflow_dispatch（Actions 画面の Run workflow）で行う。
+# タグを作らずに全ジョブを回せるので、CI を壊しながら直せる。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # ローカル開発と同じバージョンに固定する。CI だけ別のバージョンで
+  # ビルドされると、ここで再現しない不具合を追うことになる。
+  FLUTTER_VERSION: '3.44.2'
+
+jobs:
+  # タグと pubspec.yaml のバージョンがずれたまま出さないための門番。
+  # 例えば v0.8.0 のタグを打ったのに pubspec が 0.7.2 のままだと、
+  # 中身が 0.7.2 のファイルが 0.8.0 として配られてしまう。
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: get
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 '^version:' pubspec.yaml \
+            | sed -E 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "pubspec version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+            if [ "$TAG" != "v$VERSION" ]; then
+              echo "::error::タグ ($TAG) と pubspec.yaml (v$VERSION) が一致しない"
+              exit 1
+            fi
+            echo "タグと一致: $TAG"
+          fi
+
+  windows:
+    needs: check-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - run: flutter pub get
+
+      - run: flutter analyze
+
+      - run: flutter test
+
+      - run: flutter build windows
+
+      # DLL の取り違えを防ぐ。以前 rubberband 入りの libmpv（112MB）を手で
+      # 差し替えて検証したことがあり、それが紛れ込むと配布物が壊れる。
+      - name: Verify bundled files
+        shell: bash
+        run: |
+          REL="build/windows/x64/runner/Release"
+          test -f "$REL/anchor_player.exe" || { echo "::error::exe がない"; exit 1; }
+          test -f "$REL/libmpv-2.dll"      || { echo "::error::libmpv がない"; exit 1; }
+          SIZE=$(stat -c%s "$REL/libmpv-2.dll")
+          echo "libmpv-2.dll: $((SIZE / 1048576)) MB"
+          if [ "$SIZE" -gt 41943040 ]; then
+            echo "::error::libmpv が大きすぎる。純正(約15MB)でない可能性"
+            exit 1
+          fi
+          find "$REL" -type f | wc -l
+
+      - name: Build installer
+        shell: bash
+        run: bash tools/make-installer.sh
+
+      - name: Build zip
+        shell: bash
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          mkdir -p "staging/AnchorPlayer"
+          cp -r build/windows/x64/runner/Release/. "staging/AnchorPlayer/"
+          (cd staging && 7z a -tzip -mx=5 \
+            "../build/dist/anchor-player-v$VERSION-windows-x64.zip" AnchorPlayer)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            build/dist/AnchorPlayer-Setup-*.exe
+            build/dist/anchor-player-*-windows-x64.zip
+          if-no-files-found: error
+
+  android:
+    needs: check-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # 署名はデバッグ鍵のまま（個人利用向け）。CI に秘密情報を置かなくて済む。
+      - run: flutter build apk --release
+
+      - name: Rename apk
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          mkdir -p build/dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "build/dist/anchor-player-v$VERSION.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: build/dist/anchor-player-*.apk
+          if-no-files-found: error
+
+  release:
+    # タグを打ったときだけ Release を作る。手動実行は成果物の確認までで止める。
+    if: github.ref_type == 'tag'
+    needs: [check-version, windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - run: ls -la dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          NOTES="docs/release-notes/v$VERSION.md"
+          if [ -f "$NOTES" ]; then
+            gh release create "${{ github.ref_name }}" dist/* \
+              --title "Anchor Player v$VERSION" --notes-file "$NOTES"
+          else
+            # 用意し忘れてもリリース自体は通す。中身はコミット履歴から作る。
+            echo "::warning::$NOTES がないので自動生成する"
+            gh release create "${{ github.ref_name }}" dist/* \
+              --title "Anchor Player v$VERSION" --generate-notes
+          fi
