@@ -1,0 +1,23 @@
+name: Setup Flutter
+description: >
+  Flutter を用意して依存を取得する。
+
+  **Flutter のバージョンはここが唯一の定義。**
+  ci.yml と release.yml の両方がこれを使うので、両者が違うバージョンで
+  ビルドされることがない。上げるときはこのファイルだけを直す。
+
+runs:
+  using: composite
+  steps:
+    # subosito/flutter-action@v2
+    # Action は SHA で固定する。タグは付け替えられるため、タグ指定のままだと
+    # 第三者がビルドに任意のコードを差し込める余地が残る。将来コード署名を
+    # 受ける以上、署名済みバイナリの供給経路は固めておく。
+    - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      with:
+        flutter-version: '3.44.2'
+        channel: stable
+        cache: true
+
+    - run: flutter pub get
+      shell: bash

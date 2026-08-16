@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:just_audio/just_audio.dart';
 
+import '../audio_engine.dart';
 import '../recent_files.dart';
 import '../shortcuts.dart';
 import 'player_view.dart';
@@ -12,18 +12,29 @@ import 'shortcuts_dialog.dart';
 
 /// 再生状態とキー入力を持つ。画面の見た目は [PlayerView] 側にある。
 class PlayerPage extends StatefulWidget {
-  const PlayerPage({super.key});
+  const PlayerPage({super.key, this.engineFactory});
+
+  /// テストから偽の [AudioEngine] を渡すための口。
+  /// 本番では null のままで、[JustAudioEngine] が使われる。
+  final AudioEngine Function()? engineFactory;
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
 class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
-  final AudioPlayer _player = AudioPlayer();
+  late final AudioEngine _player =
+      (widget.engineFactory ?? JustAudioEngine.new)();
   final FocusNode _keyboardFocus = FocusNode();
 
   static const Set<String> _audioExts = {
-    '.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus',
+    '.mp3',
+    '.m4a',
+    '.aac',
+    '.wav',
+    '.flac',
+    '.ogg',
+    '.opus',
   };
 
   String? _fileName;
@@ -45,19 +56,25 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   @override
   void initState() {
     super.initState();
-    _subs.add(_player.durationStream.listen((d) {
-      if (!mounted) return;
-      setState(() => _duration = d ?? Duration.zero);
-    }));
-    _subs.add(_player.positionStream.listen((p) {
-      if (!mounted || _dragging) return;
-      setState(() => _position = p);
-    }));
-    _subs.add(_player.playingStream.listen((playing) {
-      if (!mounted) return;
-      setState(() => _playing = playing);
-    }));
-    _run('init', _applyLoopMode); // 常に1曲エンドレスリピート（LoopMode.one に一本化）。
+    _subs.add(
+      _player.durationStream.listen((d) {
+        if (!mounted) return;
+        setState(() => _duration = d ?? Duration.zero);
+      }),
+    );
+    _subs.add(
+      _player.positionStream.listen((p) {
+        if (!mounted || _dragging) return;
+        setState(() => _position = p);
+      }),
+    );
+    _subs.add(
+      _player.playingStream.listen((playing) {
+        if (!mounted) return;
+        setState(() => _playing = playing);
+      }),
+    );
+    _run('init', _applyLoopMode); // 常に1曲エンドレスリピート（EngineLoopMode.one に一本化）。
     _loadRecent();
   }
 
@@ -68,7 +85,7 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   }
 
   /// 常に1曲エンドレスリピート（ネイティブのループ再生に任せる）。
-  Future<void> _applyLoopMode() => _player.setLoopMode(LoopMode.one);
+  Future<void> _applyLoopMode() => _player.setLoopMode(EngineLoopMode.one);
 
   // ---- 再生エンジンへの操作の直列化 ----
 
@@ -87,10 +104,33 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   /// 吸収しないとキューが壊れて以後の操作が全て止まる、という理由もある。
   Future<void> _run(String label, Future<void> Function() action) {
     final next = _queue.then((_) => action()).catchError((Object e) {
-      debugPrint('Anchor Player: $label failed: $e');
+      _reportFailure(label, e);
     });
     _queue = next;
     return next;
+  }
+
+  /// 再生操作の失敗を知らせる。
+  ///
+  /// 以前はログに出すだけで、利用者からは「押しても効かない」としか見えなかった。
+  /// ただし例外の全文は出さない。読んでも対処できないうえ、パスなどが混じる。
+  /// 詳細は debugPrint に残す。
+  DateTime _lastFailureShown = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _failureNotifyInterval = Duration(seconds: 5);
+
+  void _reportFailure(String label, Object error) {
+    debugPrint('Anchor Player: $label failed: $error');
+    if (!mounted) return;
+
+    // 1操作が複数の失敗を生む（seek と play が続けて落ちる等）ので、
+    // 出しっぱなしにすると画面が通知で埋まる。一定時間に1回だけ出す。
+    final now = DateTime.now();
+    if (now.difference(_lastFailureShown) < _failureNotifyInterval) return;
+    _lastFailureShown = now;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Playback failed. Try reopening the file.')),
+    );
   }
 
   /// 再生を始める。**`play()` を await してはいけない。**
@@ -100,9 +140,11 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   /// 全て止まってしまう。順序が要るのは play より前の seek / setLoopMode なので、
   /// それらを await したうえで play は投げるだけにする。
   void _startPlayback(String label) {
-    unawaited(_player.play().catchError((Object e) {
-      debugPrint('Anchor Player: $label play failed: $e');
-    }));
+    unawaited(
+      _player.play().catchError((Object e) {
+        _reportFailure('$label play', e);
+      }),
+    );
   }
 
   @override
@@ -124,8 +166,9 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   Future<void> openFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions:
-          _audioExts.map((e) => e.substring(1)).toList(), // 先頭の'.'を除く
+      allowedExtensions: _audioExts
+          .map((e) => e.substring(1))
+          .toList(), // 先頭の'.'を除く
     );
     final path = result?.files.single.path;
     if (path == null) return;
@@ -139,6 +182,8 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   /// 着地するのを防ぐため。例外は中で処理するので [_run] 側には伝わらない。
   Future<void> _loadPath(String path) => _run('load', () => _load(path));
 
+  /// アンカーと再生位置は、読み込みのたびに必ず 0 に戻す（[docs/SPEC.md] の仕様）。
+  /// 前回どこにアンカーを置いて終えたかは持ち越さない。
   Future<void> _load(String path) async {
     try {
       await _player.setFilePath(path);
@@ -154,9 +199,25 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
         _recent = recent;
       });
     } catch (e) {
+      debugPrint('Anchor Player: load failed: $e');
+      // 読み込みに失敗した音源は中途半端にエンジンへ載っている可能性がある。
+      // 画面だけ前のファイルのまま残すと「再生を押しても鳴らない」状態になるので、
+      // 空状態まで戻して表示とエンジンを一致させる。
+      try {
+        await _player.stop();
+      } catch (_) {
+        // 停止にも失敗したら打つ手がない。空状態にする方を優先する。
+      }
       if (!mounted) return;
+      setState(() {
+        _fileName = null;
+        _duration = Duration.zero;
+        _position = Duration.zero;
+        _anchor = Duration.zero;
+      });
+      // 例外の全文は出さない。読んでも対処できず、パスなどが混じる。
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Cannot play this file: $e')),
+        SnackBar(content: Text('Could not open ${_baseName(path)}')),
       );
     }
   }
@@ -184,7 +245,7 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
   void toEndAndPause() {
     if (_fileName == null || _duration <= Duration.zero) return;
     _run('toEndAndPause', () async {
-      await _player.setLoopMode(LoopMode.off);
+      await _player.setLoopMode(EngineLoopMode.off);
       await _player.pause();
       await _player.seek(_duration);
     });
@@ -273,8 +334,7 @@ class _PlayerPageState extends State<PlayerPage> implements PlayerCommands {
     _heldDelta = delta;
     nudgeAnchor(delta); // 押した瞬間に1回
     _holdDelayTimer = Timer(const Duration(seconds: 1), () {
-      _holdRepeatTimer =
-          Timer.periodic(const Duration(milliseconds: 110), (_) {
+      _holdRepeatTimer = Timer.periodic(const Duration(milliseconds: 110), (_) {
         final d = _heldDelta;
         if (d != null) nudgeAnchor(d);
       });

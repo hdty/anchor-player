@@ -46,6 +46,14 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
   DateTime _lastSeek = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _seekThrottle = Duration(milliseconds: 80);
 
+  /// 読み上げ用の時刻。「2分5秒」のように単位を伴わせる
+  /// （`02:05` は読み上げると意味が取りにくい）。
+  static String _describe(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds.remainder(60);
+    return m > 0 ? '$m min $s sec' : '$s sec';
+  }
+
   double _fraction(Duration d) {
     final ms = widget.duration.inMilliseconds;
     if (ms <= 0) return 0;
@@ -61,8 +69,9 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
     final scheme = Theme.of(context).colorScheme;
     final anchorColors = context.anchorColors;
     final enabled = widget.duration.inMilliseconds > 0;
-    final positionFraction =
-        _grab == _Grab.position ? _dragFraction : _fraction(widget.position);
+    final positionFraction = _grab == _Grab.position
+        ? _dragFraction
+        : _fraction(widget.position);
     final markerFraction = _fraction(widget.marker);
     const cy = MarkerSeekBar._trackCenterY;
 
@@ -122,8 +131,11 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
                     // ピンより左=前へ / 右=後ろへ。ピンの近く(±120px)のみ反応。
                     final markerX = width * markerFraction;
                     if ((local.dx - markerX).abs() <= 120) {
-                      widget.onNudgeMarker(Duration(
-                          milliseconds: local.dx >= markerX ? 200 : -200));
+                      widget.onNudgeMarker(
+                        Duration(
+                          milliseconds: local.dx >= markerX ? 200 : -200,
+                        ),
+                      );
                     }
                   } else {
                     // トラック上のタップは再生位置へシーク。
@@ -136,24 +148,48 @@ class _MarkerSeekBarState extends State<MarkerSeekBar> {
           onPanEnd: enabled ? (_) => endDrag() : null,
           // ドラッグが途中でキャンセルされても状態を必ず解除する。
           onPanCancel: enabled ? endDrag : null,
-          child: SizedBox(
-            height: MarkerSeekBar._height,
-            width: double.infinity,
-            child: CustomPaint(
-              painter: _SeekBarPainter(
-                positionFraction: positionFraction,
-                markerFraction: markerFraction,
-                centerY: cy,
-                trackColor: scheme.surfaceContainerHighest,
-                playedColor: scheme.primary,
-                thumbColor: scheme.primary,
-                thumbBorderColor: scheme.surface,
-                markerColor: anchorColors.anchor,
-                markerInnerColor: anchorColors.onAnchor,
-                enabled: enabled,
-                grabbingMarker: _grab == _Grab.marker,
+          // 見た目は1枚の CustomPaint だが、意味としては2つの独立した値を持つ。
+          // 読み上げでも別物として伝わるように、それぞれに Semantics を重ねる
+          // （描画には関与しないので、大きさ・当たり判定は変わらない）。
+          child: Stack(
+            children: [
+              Semantics(
+                label: 'Playback position',
+                value: _describe(widget.position),
+                increasedValue: 'Right arrow: forward 10 seconds',
+                decreasedValue: 'Left arrow: back 10 seconds',
+                slider: true,
+                readOnly: !enabled,
+                child: const SizedBox.shrink(),
               ),
-            ),
+              Semantics(
+                label: 'Anchor',
+                value: _describe(widget.marker),
+                hint: 'Space returns here. Drag the pin to move it.',
+                slider: true,
+                readOnly: !enabled,
+                child: const SizedBox.shrink(),
+              ),
+              SizedBox(
+                height: MarkerSeekBar._height,
+                width: double.infinity,
+                child: CustomPaint(
+                  painter: _SeekBarPainter(
+                    positionFraction: positionFraction,
+                    markerFraction: markerFraction,
+                    centerY: cy,
+                    trackColor: scheme.surfaceContainerHighest,
+                    playedColor: scheme.primary,
+                    thumbColor: scheme.primary,
+                    thumbBorderColor: scheme.surface,
+                    markerColor: anchorColors.anchor,
+                    markerInnerColor: anchorColors.onAnchor,
+                    enabled: enabled,
+                    grabbingMarker: _grab == _Grab.marker,
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -209,7 +245,11 @@ class _SeekBarPainter extends CustomPainter {
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(
-            0, cy - trackHeight / 2, size.width * positionFraction, trackHeight),
+          0,
+          cy - trackHeight / 2,
+          size.width * positionFraction,
+          trackHeight,
+        ),
         radius,
       ),
       Paint()..color = playedColor,
@@ -226,10 +266,12 @@ class _SeekBarPainter extends CustomPainter {
         ..strokeWidth = 3
         ..strokeCap = StrokeCap.round,
     );
+    canvas.drawCircle(Offset(mx, 12), headRadius, Paint()..color = markerColor);
     canvas.drawCircle(
-        Offset(mx, 12), headRadius, Paint()..color = markerColor);
-    canvas.drawCircle(
-        Offset(mx, 12), headRadius / 2.8, Paint()..color = markerInnerColor);
+      Offset(mx, 12),
+      headRadius / 2.8,
+      Paint()..color = markerInnerColor,
+    );
 
     // 再生位置の丸（トラック上）。
     final tx = size.width * positionFraction;

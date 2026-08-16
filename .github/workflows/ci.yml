@@ -1,0 +1,29 @@
+name: CI
+
+# 日常の変更を検査する。release.yml はタグと手動実行でしか動かないため、
+# それだけだと壊れたまま main に入る余地がある。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 検査するだけなので読み取りのみ。
+permissions:
+  contents: read
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # Flutter のバージョンは composite action 側にある（唯一の定義）。
+      - uses: ./.github/actions/setup-flutter
+
+      # dart format の検査は入れていない。現状 9 ファイルが未整形で、
+      # 有効にすると今回と無関係な一括整形が必要になるため。
+      # 導入するなら整形だけを独立したコミットで先に済ませること。
+      - run: flutter analyze
+
+      - run: flutter test
